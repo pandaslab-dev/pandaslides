@@ -1,25 +1,10 @@
-export type Slide = {
-  id: string;
-  label: string;
-  lines: string[];
-  footer?: string;
-};
+import type { PandaSlidesProject } from "../types/project";
 
-export type ServiceItem = {
-  id: string;
-  title: string;
-  type: "intro" | "song" | "scripture" | "sermon" | "announcements" | "closing";
-  subtitle?: string;
-  slides: Slide[];
-};
-
-export type ServiceData = {
-  title: string;
-  items: ServiceItem[];
-};
-
-export const demoService: ServiceData = {
+export const demoService: PandaSlidesProject = {
+  id: "demo-sunday-service",
   title: "Sunday Service",
+  kind: "demo",
+  updatedAt: "2026-05-13T12:00:00.000Z",
   items: [
     {
       id: "welcome",

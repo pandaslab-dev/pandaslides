@@ -5,16 +5,16 @@
   --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
   --font-display: "Oswald", "Arial Narrow", sans-serif;
 
-  --color-surface-950: #0a0d12;
-  --color-surface-900: #10141c;
-  --color-surface-850: #141a24;
-  --color-surface-800: #1a2230;
-  --color-surface-700: #243041;
-  --color-border-700: #2a3446;
+  --color-surface-950: #080b10;
+  --color-surface-900: #0d1119;
+  --color-surface-850: #111722;
+  --color-surface-800: #181f2e;
+  --color-surface-700: #1e2835;
+  --color-border-700: #252f3e;
   --color-accent-500: #d4a43e;
   --color-accent-400: #e1b95d;
-  --color-copy-100: #f3f5f7;
-  --color-copy-300: #aab4c4;
+  --color-copy-100: #eef1f5;
+  --color-copy-300: #8d9db0;
 }
 
 :root {
@@ -31,7 +31,7 @@ body,
 }
 
 body {
-  margin: 0;
+  background: #080b10;
   overflow: hidden;
 }
 
@@ -42,24 +42,63 @@ select {
   font: inherit;
 }
 
-/* Legacy panel class — still used by Stage page */
-.panel {
-  @apply rounded-xl border border-[color:var(--color-border-700)] bg-[color:rgba(16,20,28,0.92)] shadow-[0_8px_24px_rgba(0,0,0,0.28)];
-}
-
-.section-label {
-  @apply text-[10px] font-semibold tracking-[0.18em] text-[color:var(--color-copy-300)] uppercase;
-}
-
+/* Slide canvas monitor frame */
 .slide-frame {
   background:
-    linear-gradient(180deg, rgba(9, 12, 18, 0.74), rgba(9, 12, 18, 0.88)),
-    radial-gradient(circle at top, rgba(255, 239, 195, 0.08), transparent 42%),
-    linear-gradient(180deg, #1a2029 0%, #11161e 100%);
+    radial-gradient(ellipse at top, rgba(255, 235, 185, 0.04), transparent 55%),
+    linear-gradient(180deg, #101520 0%, #090d14 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
+/* Slide text rendering */
 .slide-text {
   font-family: var(--font-display);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* App menu bar — top chrome */
+.app-menubar {
+  background: linear-gradient(180deg, #12181f 0%, #0d1219 100%);
+}
+
+/* Compact panel section label */
+.panel-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #5a6a7e;
+}
+
+/* Rundown cue-list item header */
+.cue-header {
+  background: rgba(10, 14, 22, 0.7);
+}
+
+/* Output status dot */
+.status-dot-live {
+  background: #34d399;
+  box-shadow: 0 0 5px rgba(52, 211, 153, 0.5);
+}
+
+.status-dot-idle {
+  background: #2a3545;
+}
+
+/* Start panel banner gradient */
+.start-panel-banner {
+  background:
+    linear-gradient(135deg, rgba(212, 164, 62, 0.18), rgba(212, 164, 62, 0.03) 38%, rgba(12, 16, 24, 0.92) 80%),
+    linear-gradient(180deg, #1f2a38 0%, #141c28 52%, #0f1620 100%);
+}
+
+/* Panel border — consistent across the app */
+.panel-border {
+  border-color: #1e2835;
+}
+
+/* Thin separator used in lists */
+.list-sep {
+  border-color: #161e2a;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { ServiceData, ServiceItem, Slide } from "../data/demoService";
+import type { PandaSlidesProject, ProjectItem, Slide } from "../types/project";
+import { normalizeProject } from "../utils/projectStorage";
 
 export type SlidePointer = {
   itemIndex: number;
@@ -8,15 +9,23 @@ export type SlidePointer = {
 };
 
 export type LiveState = {
-  service: ServiceData;
+  service: PandaSlidesProject;
   selected: SlidePointer;
   live: SlidePointer;
   blackout: boolean;
   logo: boolean;
 };
 
+export type LocalWorkspaceState = {
+  service: PandaSlidesProject | null;
+  selected: SlidePointer | null;
+  live: SlidePointer | null;
+  blackout: boolean;
+  logo: boolean;
+};
+
 export type ResolvedSlide = {
-  item: ServiceItem;
+  item: ProjectItem;
   slide: Slide;
   pointer: SlidePointer;
 };
@@ -31,6 +40,8 @@ export type OperatorAction =
 
 const socketUrl = import.meta.env.VITE_SOCKET_URL;
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+const localWorkspaceKey = "pandaslides.local-workspace-state";
+const localWorkspaceEvent = "pandaslides:workspace-state";
 
 let socketSingleton: Socket | null = null;
 
@@ -48,7 +59,7 @@ export function getSocket() {
   return socketSingleton;
 }
 
-export function resolveSlide(service: ServiceData, pointer: SlidePointer): ResolvedSlide {
+export function resolveSlide(service: PandaSlidesProject, pointer: SlidePointer): ResolvedSlide {
   const item = service.items[pointer.itemIndex];
   const slide = item.slides[pointer.slideIndex];
 
@@ -59,7 +70,7 @@ export function resolveSlide(service: ServiceData, pointer: SlidePointer): Resol
   };
 }
 
-export function flattenSlides(service: ServiceData) {
+export function flattenSlides(service: PandaSlidesProject) {
   return service.items.flatMap((item, itemIndex) =>
     item.slides.map((slide, slideIndex) => ({
       item,
@@ -69,7 +80,7 @@ export function flattenSlides(service: ServiceData) {
   );
 }
 
-export function getNextPointer(service: ServiceData, pointer: SlidePointer) {
+export function getNextPointer(service: PandaSlidesProject, pointer: SlidePointer) {
   const flatSlides = flattenSlides(service);
   const currentIndex = flatSlides.findIndex(
     (entry) => entry.pointer.itemIndex === pointer.itemIndex && entry.pointer.slideIndex === pointer.slideIndex,
@@ -82,7 +93,7 @@ export function getNextPointer(service: ServiceData, pointer: SlidePointer) {
   return flatSlides[Math.min(currentIndex + 1, flatSlides.length - 1)].pointer;
 }
 
-export function getPreviousPointer(service: ServiceData, pointer: SlidePointer) {
+export function getPreviousPointer(service: PandaSlidesProject, pointer: SlidePointer) {
   const flatSlides = flattenSlides(service);
   const currentIndex = flatSlides.findIndex(
     (entry) => entry.pointer.itemIndex === pointer.itemIndex && entry.pointer.slideIndex === pointer.slideIndex,
@@ -93,6 +104,91 @@ export function getPreviousPointer(service: ServiceData, pointer: SlidePointer) 
   }
 
   return flatSlides[Math.max(currentIndex - 1, 0)].pointer;
+}
+
+export function getFirstPointer(service: PandaSlidesProject) {
+  const firstItem = service.items.find((item) => item.slides.length > 0);
+
+  if (!firstItem) {
+    return null;
+  }
+
+  const itemIndex = service.items.findIndex((item) => item.id === firstItem.id);
+  return {
+    itemIndex,
+    slideIndex: 0,
+  };
+}
+
+export function isValidPointer(service: PandaSlidesProject, pointer: SlidePointer | null) {
+  if (!pointer) {
+    return false;
+  }
+
+  return Boolean(service.items[pointer.itemIndex]?.slides[pointer.slideIndex]);
+}
+
+export function loadLocalWorkspaceState() {
+  if (typeof window === "undefined") {
+    return null as LocalWorkspaceState | null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(localWorkspaceKey);
+    if (!raw) {
+      return null as LocalWorkspaceState | null;
+    }
+
+    const parsed = JSON.parse(raw) as LocalWorkspaceState & { service: unknown };
+    const service = parsed.service ? normalizeProject(parsed.service) : null;
+    const selected = service && isValidPointer(service, parsed.selected) ? parsed.selected : null;
+    const live = service && isValidPointer(service, parsed.live) ? parsed.live : null;
+
+    return {
+      service,
+      selected,
+      live,
+      blackout: Boolean(parsed.blackout),
+      logo: Boolean(parsed.logo),
+    };
+  } catch {
+    return null as LocalWorkspaceState | null;
+  }
+}
+
+export function saveLocalWorkspaceState(state: LocalWorkspaceState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(localWorkspaceKey, JSON.stringify(state));
+  window.dispatchEvent(new CustomEvent(localWorkspaceEvent));
+}
+
+export function useLocalWorkspaceState() {
+  const [state, setState] = useState<LocalWorkspaceState | null>(() => loadLocalWorkspaceState());
+
+  useEffect(() => {
+    function syncState() {
+      setState(loadLocalWorkspaceState());
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key === localWorkspaceKey) {
+        syncState();
+      }
+    }
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(localWorkspaceEvent, syncState);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(localWorkspaceEvent, syncState);
+    };
+  }, []);
+
+  return state;
 }
 
 export function useLiveStateConnection() {
