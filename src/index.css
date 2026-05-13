@@ -10,7 +10,7 @@
   --color-surface-850: #141a24;
   --color-surface-800: #1a2230;
   --color-surface-700: #243041;
-  --color-border-700: #313d4e;
+  --color-border-700: #2a3446;
   --color-accent-500: #d4a43e;
   --color-accent-400: #e1b95d;
   --color-copy-100: #f3f5f7;
@@ -20,20 +20,19 @@
 :root {
   font-family: var(--font-sans);
   color: var(--color-copy-100);
-  background:
-    radial-gradient(circle at top, rgba(212, 164, 62, 0.12), transparent 24%),
-    linear-gradient(180deg, #0a0d12 0%, #0f141b 100%);
   color-scheme: dark;
 }
 
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
+  margin: 0;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 button,
@@ -43,12 +42,13 @@ select {
   font: inherit;
 }
 
+/* Legacy panel class — still used by Stage page */
 .panel {
-  @apply rounded-2xl border border-[color:var(--color-border-700)] bg-[color:rgba(16,20,28,0.92)] shadow-[0_14px_40px_rgba(0,0,0,0.28)];
+  @apply rounded-xl border border-[color:var(--color-border-700)] bg-[color:rgba(16,20,28,0.92)] shadow-[0_8px_24px_rgba(0,0,0,0.28)];
 }
 
 .section-label {
-  @apply text-[11px] font-semibold tracking-[0.18em] text-[color:var(--color-copy-300)] uppercase;
+  @apply text-[10px] font-semibold tracking-[0.18em] text-[color:var(--color-copy-300)] uppercase;
 }
 
 .slide-frame {
