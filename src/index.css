@@ -1,0 +1,65 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Oswald:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-display: "Oswald", "Arial Narrow", sans-serif;
+
+  --color-surface-950: #0a0d12;
+  --color-surface-900: #10141c;
+  --color-surface-850: #141a24;
+  --color-surface-800: #1a2230;
+  --color-surface-700: #243041;
+  --color-border-700: #313d4e;
+  --color-accent-500: #d4a43e;
+  --color-accent-400: #e1b95d;
+  --color-copy-100: #f3f5f7;
+  --color-copy-300: #aab4c4;
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--color-copy-100);
+  background:
+    radial-gradient(circle at top, rgba(212, 164, 62, 0.12), transparent 24%),
+    linear-gradient(180deg, #0a0d12 0%, #0f141b 100%);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.panel {
+  @apply rounded-2xl border border-[color:var(--color-border-700)] bg-[color:rgba(16,20,28,0.92)] shadow-[0_14px_40px_rgba(0,0,0,0.28)];
+}
+
+.section-label {
+  @apply text-[11px] font-semibold tracking-[0.18em] text-[color:var(--color-copy-300)] uppercase;
+}
+
+.slide-frame {
+  background:
+    linear-gradient(180deg, rgba(9, 12, 18, 0.74), rgba(9, 12, 18, 0.88)),
+    radial-gradient(circle at top, rgba(255, 239, 195, 0.08), transparent 42%),
+    linear-gradient(180deg, #1a2029 0%, #11161e 100%);
+}
+
+.slide-text {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
