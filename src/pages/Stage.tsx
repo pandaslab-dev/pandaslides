@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getNextPointer, resolveSlide, useLiveStateConnection } from "../state/liveState";
+import { useLiveStateConnection } from "../state/liveState";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -15,67 +15,105 @@ function useClock() {
   });
 }
 
-function StageTextCard({ title, lines }: { title: string; lines: string[] }) {
+function StagePanelHeader({ title, meta }: { title: string; meta?: string }) {
   return (
-    <section className="panel flex h-full flex-col p-6">
-      <div className="section-label">{title}</div>
-      <div className="mt-5 flex-1">
-        <div className="space-y-4 text-balance text-2xl font-semibold leading-tight text-white xl:text-4xl">
-          {lines.map((line) => (
-            <p key={line} className="m-0">
-              {line}
-            </p>
-          ))}
-        </div>
+    <div className="flex h-[30px] items-center justify-between border-b border-[#1e2835] bg-[#090d15] px-3">
+      <span className="panel-label">{title}</span>
+      {meta ? <span className="text-[10px] text-[#3a4a5e]">{meta}</span> : null}
+    </div>
+  );
+}
+
+function StageTextPanel({
+  title,
+  body,
+  meta,
+  emptyLabel,
+}: {
+  title: string;
+  body: string;
+  meta?: string;
+  emptyLabel: string;
+}) {
+  return (
+    <section className="flex h-full min-h-0 flex-col border border-[#1e2835] bg-[#0d1119]">
+      <StagePanelHeader title={title} meta={meta} />
+      <div className="flex flex-1 items-center justify-center px-6 py-5">
+        {body.trim().length > 0 ? (
+          <div className="slide-text max-w-[19ch] whitespace-pre-wrap text-center text-4xl leading-[1.08] text-white xl:text-6xl">
+            {body}
+          </div>
+        ) : (
+          <div className="text-[11px] font-semibold tracking-[0.22em] text-[#4a5a5e] uppercase">{emptyLabel}</div>
+        )}
       </div>
     </section>
   );
 }
 
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-b border-[#161e2a] px-3 py-2 last:border-b-0">
+      <div className="text-[10px] font-semibold tracking-[0.18em] text-[#5a6a7e] uppercase">{label}</div>
+      <div className="mt-1 text-[12px] text-[#d5dde6]">{value}</div>
+    </div>
+  );
+}
+
 export function StagePage() {
-  const { state, loading, error } = useLiveStateConnection();
+  const { workspace, snapshot, loading, error } = useLiveStateConnection();
   const time = useClock();
 
-  if (loading && !state) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#030507] text-slate-200">Connecting stage display...</div>;
+  if (loading && !workspace) {
+    return <div className="flex h-screen items-center justify-center bg-[#030507] text-[#8d9db0]">Connecting stage display…</div>;
   }
 
-  if (error || !state) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#030507] px-6 text-center text-slate-400">{error ?? "Stage display unavailable."}</div>;
+  if (error && !workspace) {
+    return <div className="flex h-screen items-center justify-center bg-[#030507] px-6 text-center text-[#6a7a8e]">{error}</div>;
   }
 
-  const currentEntry = resolveSlide(state.service, state.live);
-  const nextEntry = resolveSlide(state.service, getNextPointer(state.service, state.live));
+  if (!snapshot.project || !snapshot.live) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#030507] px-6 text-center text-[11px] font-semibold tracking-[0.22em] text-[#4a5a6e] uppercase">
+        Waiting for live output
+      </div>
+    );
+  }
+
+  const modeLabel = snapshot.mode === "blackout" ? "Blackout" : snapshot.mode === "logo" ? "Logo" : "Slides Live";
+  const currentBody = snapshot.mode === "live" ? snapshot.live.slide.body : `${modeLabel}\nOutput active`;
+  const nextBody = snapshot.mode === "live" ? snapshot.next?.slide.body ?? "" : `${modeLabel}\nPreview held`;
 
   return (
-    <div className="min-h-screen bg-[#030507] px-5 py-5 text-white">
-      <div className="mx-auto grid min-h-[calc(100vh-2.5rem)] max-w-[1800px] gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_280px]">
-        <StageTextCard title="Current Slide" lines={currentEntry.slide.lines} />
-        <StageTextCard title="Next Slide" lines={nextEntry.slide.lines} />
+    <div className="h-screen bg-[#030507] px-4 py-4 text-white">
+      <div className="mx-auto grid h-full max-w-[1800px] gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_280px]">
+        <StageTextPanel
+          title="Current Slide"
+          meta={snapshot.live.slide.title}
+          body={currentBody}
+          emptyLabel="No current slide text"
+        />
+        <StageTextPanel
+          title="Next Slide"
+          meta={snapshot.next?.slide.title ?? "End"}
+          body={nextBody}
+          emptyLabel="No next slide"
+        />
 
-        <aside className="panel flex flex-col justify-between p-6">
-          <div>
-            <div className="section-label">Now</div>
-            <div className="mt-4 text-6xl font-semibold tracking-tight text-[color:var(--color-accent-400)]">{time}</div>
+        <aside className="flex min-h-0 flex-col border border-[#1e2835] bg-[#0d1119]">
+          <StagePanelHeader title="Stage" meta={snapshot.slidePosition ? `${snapshot.slidePosition.current} / ${snapshot.slidePosition.total}` : undefined} />
+
+          <div className="border-b border-[#161e2a] px-3 py-3">
+            <div className="text-[10px] font-semibold tracking-[0.18em] text-[#5a6a7e] uppercase">Clock</div>
+            <div className="mt-2 text-5xl font-semibold tracking-tight text-[color:var(--color-accent-400)]">{time}</div>
           </div>
 
-          <div className="space-y-4 text-sm text-slate-200">
-            <div className="rounded-xl border border-white/6 bg-white/4 p-4">
-              <div className="section-label">Current Item</div>
-              <p className="mt-2 text-lg font-semibold text-white">{currentEntry.item.title}</p>
-              <p className="mt-1 text-sm text-slate-400">{currentEntry.slide.label}</p>
-            </div>
-            <div className="rounded-xl border border-white/6 bg-white/4 p-4">
-              <div className="section-label">Next Item</div>
-              <p className="mt-2 text-lg font-semibold text-white">{nextEntry.item.title}</p>
-              <p className="mt-1 text-sm text-slate-400">{nextEntry.slide.label}</p>
-            </div>
-            <div className="rounded-xl border border-white/6 bg-white/4 p-4">
-              <div className="section-label">Output Mode</div>
-              <p className="mt-2 text-lg font-semibold text-white">
-                {state.blackout ? "Blackout" : state.logo ? "Logo" : "Slides Live"}
-              </p>
-            </div>
+          <div className="flex-1 overflow-y-auto">
+            <MetaRow label="Current Item" value={snapshot.live.item.title} />
+            <MetaRow label="Current Slide" value={snapshot.live.slide.title} />
+            <MetaRow label="Next Item" value={snapshot.next?.item.title ?? "No next item"} />
+            <MetaRow label="Next Slide" value={snapshot.next?.slide.title ?? "No next slide"} />
+            <MetaRow label="Output Mode" value={modeLabel} />
           </div>
         </aside>
       </div>

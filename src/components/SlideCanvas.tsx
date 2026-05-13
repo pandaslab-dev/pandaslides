@@ -1,28 +1,64 @@
-import type { Slide } from "../types/project";
+import type { Slide, SlideAlignment, SlideFontSize } from "../types/project";
 
 type SlideCanvasProps = {
   slide: Slide;
   className?: string;
-  align?: "left" | "center";
+  align?: SlideAlignment;
   compact?: boolean;
+  emptyStateLabel?: string;
 };
 
-export function SlideCanvas({ slide, className = "", align = "center", compact = false }: SlideCanvasProps) {
+const FULL_SIZE_MAP: Record<SlideFontSize, string> = {
+  sm: "text-2xl sm:text-3xl lg:text-4xl",
+  md: "text-3xl sm:text-4xl lg:text-5xl",
+  lg: "text-4xl sm:text-5xl lg:text-6xl",
+  xl: "text-5xl sm:text-6xl lg:text-7xl",
+};
+
+const COMPACT_SIZE_MAP: Record<SlideFontSize, string> = {
+  sm: "text-lg sm:text-xl",
+  md: "text-xl sm:text-2xl",
+  lg: "text-2xl sm:text-3xl",
+  xl: "text-3xl sm:text-4xl",
+};
+
+function getAlignmentClass(align: SlideAlignment) {
+  switch (align) {
+    case "left":
+      return "text-left items-start";
+    case "right":
+      return "text-right items-end";
+    default:
+      return "text-center items-center";
+  }
+}
+
+export function SlideCanvas({
+  slide,
+  className = "",
+  align,
+  compact = false,
+  emptyStateLabel = "",
+}: SlideCanvasProps) {
+  const textAlign = align ?? slide.align ?? "center";
+  const size = slide.fontSize ?? "lg";
+  const body = slide.body ?? "";
+
   return (
     <div className={`slide-frame flex flex-col overflow-hidden border border-white/6 ${className}`}>
-      <div className="flex flex-1 items-center justify-center px-5 py-5">
-        <div className={`w-full max-w-5xl ${align === "center" ? "text-center" : "text-left"}`}>
-          <div
-            className={`slide-text text-white ${
-              compact ? "space-y-1.5 text-lg sm:text-xl" : "space-y-3 text-2xl sm:text-3xl lg:text-4xl xl:text-5xl"
-            }`}
-          >
-            {slide.lines.map((line) => (
-              <p key={line} className="m-0 leading-[1.1]">
-                {line}
-              </p>
-            ))}
-          </div>
+      <div className={`flex flex-1 px-5 py-5 ${textAlign === "center" ? "items-center" : "items-stretch"} justify-center`}>
+        <div className={`flex w-full max-w-[20ch] flex-col justify-center ${getAlignmentClass(textAlign)}`}>
+          {body.trim().length > 0 ? (
+            <div
+              className={`slide-text whitespace-pre-wrap break-words leading-[1.08] text-white ${
+                compact ? COMPACT_SIZE_MAP[size] : FULL_SIZE_MAP[size]
+              }`}
+            >
+              {body}
+            </div>
+          ) : emptyStateLabel ? (
+            <div className="text-[11px] uppercase tracking-[0.2em] text-[#4a5a6e]">{emptyStateLabel}</div>
+          ) : null}
         </div>
       </div>
       {slide.footer ? (

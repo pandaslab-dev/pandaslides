@@ -1,105 +1,243 @@
 import { demoService } from "./demoService";
-import type { PandaSlidesProject, ProjectItem, ProjectKind } from "../types/project";
+import { createEntityId, cloneProject } from "../utils/projectStorage";
+import { PROJECT_SCHEMA_VERSION, type PandaSlidesProject, type ProjectKind, type ServiceItem, type ServiceItemType, type Slide, type SlideFontSize } from "../types/project";
 
-function createProjectId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+export type SongTemplateKey = "basic-song" | "worship-song" | "hymn-style";
+
+export const SONG_TEMPLATE_OPTIONS: { key: SongTemplateKey; label: string }[] = [
+  { key: "basic-song", label: "Basic Song" },
+  { key: "worship-song", label: "Worship Song" },
+  { key: "hymn-style", label: "Hymn Style" },
+];
+
+const SONG_TEMPLATE_SECTIONS: Record<SongTemplateKey, string[]> = {
+  "basic-song": ["Verse 1", "Chorus", "Verse 2", "Chorus"],
+  "worship-song": ["Verse 1", "Verse 2", "Chorus", "Bridge", "Chorus"],
+  "hymn-style": ["Verse 1", "Verse 2", "Verse 3", "Verse 4"],
+};
+
+type SlideSeed = {
+  title: string;
+  body: string;
+  footer?: string;
+  fontSize?: SlideFontSize;
+};
+
+function nowIsoString() {
+  return new Date().toISOString();
 }
 
-function stampProject(project: Omit<PandaSlidesProject, "id" | "updatedAt">, prefix: string) {
+function stampProject(project: Omit<PandaSlidesProject, "id" | "updatedAt">, prefix: string): PandaSlidesProject {
   return {
     ...project,
-    id: createProjectId(prefix),
-    updatedAt: new Date().toISOString(),
+    id: createEntityId(prefix),
+    updatedAt: nowIsoString(),
   };
 }
 
-function cloneItems(items: ProjectItem[]) {
-  return items.map((item) => ({
-    ...item,
-    slides: item.slides.map((slide) => ({ ...slide, lines: [...slide.lines] })),
-  }));
-}
-
-function cloneProject(project: PandaSlidesProject, kind: ProjectKind = project.kind) {
+function cloneServiceItem(serviceItem: ServiceItem): ServiceItem {
   return {
-    ...project,
-    id: createProjectId(kind),
-    kind,
-    updatedAt: new Date().toISOString(),
-    items: cloneItems(project.items),
+    ...serviceItem,
+    id: createEntityId(serviceItem.type),
+    slides: serviceItem.slides.map((slide) => ({
+      ...slide,
+      id: createEntityId("slide"),
+    })),
   };
 }
 
-export function createBlankProject() {
+function createSlide(seed: SlideSeed, orderIndex: number): Slide {
+  return {
+    id: createEntityId("slide"),
+    title: seed.title,
+    body: seed.body,
+    orderIndex,
+    align: "center",
+    fontSize: seed.fontSize ?? "lg",
+    footer: seed.footer,
+  };
+}
+
+function createCustomBody(label: string) {
+  const lowerLabel = label.toLowerCase();
+
+  if (lowerLabel.includes("chorus")) {
+    return "Line one of the chorus\nLine two of the chorus";
+  }
+
+  if (lowerLabel.includes("bridge")) {
+    return "Line one of the bridge\nLine two of the bridge";
+  }
+
+  if (lowerLabel.includes("tag")) {
+    return "Line one of the tag\nLine two of the tag";
+  }
+
+  if (lowerLabel.includes("ending")) {
+    return "Line one of the ending\nLine two of the ending";
+  }
+
+  return "Line one of the verse\nLine two of the verse\nLine three of the verse";
+}
+
+function createDefaultSlidesForType(type: Exclude<ServiceItemType, "song">): SlideSeed[] {
+  switch (type) {
+    case "welcome":
+      return [
+        {
+          title: "Welcome",
+          body: "Welcome to Panda Community Church\nService begins shortly",
+          footer: "WELCOME",
+          fontSize: "xl",
+        },
+      ];
+    case "scripture":
+      return [
+        {
+          title: "Reading",
+          body: "Scripture reference\nAdd the passage text here",
+          footer: "SCRIPTURE",
+        },
+      ];
+    case "message":
+      return [
+        {
+          title: "Title Slide",
+          body: "Message title\nSpeaker name",
+          footer: "MESSAGE",
+          fontSize: "xl",
+        },
+      ];
+    case "announcement":
+      return [
+        {
+          title: "Announcement",
+          body: "Main announcement line\nSupporting detail",
+          footer: "ANNOUNCEMENT",
+        },
+      ];
+    case "closing":
+      return [
+        {
+          title: "Closing",
+          body: "Thank you for joining us\nSee you next time",
+          footer: "CLOSING",
+        },
+      ];
+    case "custom":
+    default:
+      return [
+        {
+          title: "New Slide",
+          body: "Add slide content here",
+          footer: "CUSTOM",
+        },
+      ];
+  }
+}
+
+export function createSongSectionSlide(sectionTitle: string, orderIndex: number): Slide {
+  return createSlide(
+    {
+      title: sectionTitle,
+      body: createCustomBody(sectionTitle),
+      footer: "SONG",
+      fontSize: sectionTitle.toLowerCase().includes("chorus") ? "xl" : "lg",
+    },
+    orderIndex,
+  );
+}
+
+export function createSongServiceItem(title = "New Song", template: SongTemplateKey = "basic-song"): ServiceItem {
+  return {
+    id: createEntityId("song"),
+    title,
+    type: "song",
+    orderIndex: 0,
+    subtitle: SONG_TEMPLATE_OPTIONS.find((option) => option.key === template)?.label,
+    slides: SONG_TEMPLATE_SECTIONS[template].map((sectionTitle, orderIndex) => createSongSectionSlide(sectionTitle, orderIndex)),
+  } satisfies ServiceItem;
+}
+
+export function createServiceItemTemplate(type: ServiceItemType, title?: string): ServiceItem {
+  if (type === "song") {
+    return createSongServiceItem(title ?? "New Song");
+  }
+
+  const defaultTitleMap: Record<Exclude<ServiceItemType, "song">, string> = {
+    welcome: "Welcome",
+    scripture: "Scripture",
+    message: "Message",
+    announcement: "Announcement",
+    closing: "Closing",
+    custom: "Custom Item",
+  };
+
+  return {
+    id: createEntityId(type),
+    title: title ?? defaultTitleMap[type],
+    type,
+    orderIndex: 0,
+    slides: createDefaultSlidesForType(type).map((slide, orderIndex) => createSlide(slide, orderIndex)),
+  } satisfies ServiceItem;
+}
+
+export function createBlankSlide(title = "New Slide", body = "Add slide content here", orderIndex = 0): Slide {
+  return createSlide({ title, body, footer: "SLIDE" }, orderIndex);
+}
+
+export function createBlankProject(): PandaSlidesProject {
   return stampProject(
     {
-      title: "Blank Presentation",
+      name: "Blank Project",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
       kind: "blank",
-      items: [],
+      serviceItems: [],
     },
     "blank",
   );
 }
 
-export function createDemoProject() {
-  return cloneProject(demoService, "demo");
-}
-
-export function createSundayServiceTemplate() {
-  const project = cloneProject(demoService, "service");
+export function createDemoProject(): PandaSlidesProject {
   return {
-    ...project,
-    title: "Sunday Service",
+    ...cloneProject(demoService),
+    id: createEntityId("demo"),
+    updatedAt: nowIsoString(),
   };
 }
 
-export function createEventDeckTemplate() {
+export function createSundayServiceTemplate(): PandaSlidesProject {
+  const project = cloneProject(demoService);
+  return {
+    ...project,
+    id: createEntityId("service"),
+    name: "Sunday Service",
+    kind: "service",
+    updatedAt: nowIsoString(),
+  };
+}
+
+export function createEventDeckTemplate(): PandaSlidesProject {
   return stampProject(
     {
-      title: "Event Deck",
+      name: "Event Deck",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
       kind: "event",
-      items: [
+      serviceItems: [
         {
-          id: "event-welcome",
-          title: "House Open",
-          type: "general",
+          ...createServiceItemTemplate("welcome", "House Open"),
+          orderIndex: 0,
           subtitle: "Main Room",
-          slides: [
-            {
-              id: "event-welcome-1",
-              label: "Doors Open",
-              lines: ["Welcome to tonight's event", "The program will begin shortly"],
-              footer: "PANDASLIDES EVENT",
-            },
-          ],
         },
         {
-          id: "event-speaker",
-          title: "Featured Session",
-          type: "general",
+          ...createServiceItemTemplate("message", "Featured Session"),
+          orderIndex: 1,
           subtitle: "Opening Keynote",
-          slides: [
-            {
-              id: "event-speaker-1",
-              label: "Speaker Intro",
-              lines: ["Opening Session", "Hosted by Jordan Ellis"],
-              footer: "LIVE EVENT",
-            },
-          ],
         },
         {
-          id: "event-break",
-          title: "Intermission",
-          type: "general",
+          ...createServiceItemTemplate("announcement", "Intermission"),
+          orderIndex: 2,
           subtitle: "Reset the room",
-          slides: [
-            {
-              id: "event-break-1",
-              label: "Break",
-              lines: ["Intermission", "We will resume in 10 minutes"],
-              footer: "THANK YOU",
-            },
-          ],
         },
       ],
     },
@@ -107,42 +245,40 @@ export function createEventDeckTemplate() {
   );
 }
 
-export function createSongSetTemplate() {
+export function createSongSetTemplate(): PandaSlidesProject {
   return stampProject(
     {
-      title: "Song Set",
+      name: "Song Set",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
       kind: "song-set",
-      items: [
+      serviceItems: [
         {
-          id: "song-1",
-          title: "Opening Song",
-          type: "song",
-          subtitle: "Set your first arrangement here",
-          slides: [
-            {
-              id: "song-1-verse",
-              label: "Verse 1",
-              lines: ["First lyric line", "Second lyric line", "Third lyric line", "Fourth lyric line"],
-              footer: "SONG SET",
-            },
-          ],
+          ...createSongServiceItem("Opening Song", "worship-song"),
+          orderIndex: 0,
         },
         {
-          id: "song-2",
-          title: "Response Song",
-          type: "song",
-          subtitle: "Ready for a second song",
-          slides: [
-            {
-              id: "song-2-chorus",
-              label: "Chorus",
-              lines: ["Lift your voice", "Sing together", "Carry the moment"],
-              footer: "SONG SET",
-            },
-          ],
+          ...createSongServiceItem("Response Song", "basic-song"),
+          orderIndex: 1,
         },
       ],
     },
     "song-set",
   );
+}
+
+export function cloneProjectWithKind(project: PandaSlidesProject, kind: ProjectKind): PandaSlidesProject {
+  return {
+    ...cloneProject(project),
+    id: createEntityId(kind),
+    kind,
+    updatedAt: nowIsoString(),
+  };
+}
+
+export function createSundayServicePrefab(): PandaSlidesProject {
+  return cloneProjectWithKind(demoService, "service");
+}
+
+export function duplicateServiceItemTemplate(serviceItem: ServiceItem): ServiceItem {
+  return cloneServiceItem(serviceItem);
 }
