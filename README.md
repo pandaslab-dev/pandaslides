@@ -1,108 +1,51 @@
 # PandaSlides
 
-PandaSlides is a lightweight browser-based live presentation controller with three synchronized views:
+Realtime browser-based presentation control for an operator screen, audience display, and stage confidence monitor.
 
-- `/operator` for slide control
-- `/display` for the audience output
-- `/stage` for the confidence monitor
+## Why I built it
 
-The app uses Socket.IO to keep all three views in sync in realtime while the operator edits a project locally.
+I built PandaSlides to explore a simpler live presentation workflow for churches, events, and performances while learning how to coordinate multiple synchronized screens in realtime. The project let me design both the editing experience and the live-output system instead of depending on a heavyweight existing presentation tool.
 
-## Stack
+## Tech stack
 
-- React + Vite frontend
-- Tailwind CSS for styling
-- Express + Socket.IO backend
+- TypeScript
+- React 19
+- Vite
+- HTML / CSS
+- Tailwind CSS 4
+- Node.js
+- Express
+- Socket.IO
 
-## Local Setup
+## Current features
 
-1. Install dependencies:
+- Three synchronized views: operator, display, and stage
+- Editable presentation projects with ordered sections and slides
+- `.pandaslides` import/export with embedded image and audio assets
+- Live queueing, go-live controls, blackout mode, and logo mode
+- Song section generation and text-to-song-slide rebuilding
+- Local recent-project persistence in the browser
+- Optional Web MIDI bindings for live controls
+
+## What I learned
+
+- How to model shared live state across multiple clients with Socket.IO
+- How to separate editing state from presentation/output state in a React app
+- How to design a portable JSON-based file format that can include media
+- How to structure a small full-stack app so development and production runs stay simple
+
+## What I would improve next
+
+- Add automated tests for project parsing, schema validation, and live-state behavior
+- Refine the operator UI for faster large-deck editing
+- Add persistent server-side storage and multi-operator collaboration
+- Improve mobile and tablet ergonomics for control use on smaller screens
+
+## Running locally
+
+For detailed setup, usage, and file-format docs, see [docs/running-and-usage.md](/Users/panda/Projects/2026/pandaslides/docs/running-and-usage.md) and [docs/pandaslides-format.md](/Users/panda/Projects/2026/pandaslides/docs/pandaslides-format.md).
 
 ```bash
 npm install
-```
-
-2. Start the frontend and backend together:
-
-```bash
 npm run dev
 ```
-
-3. Open the routes in separate browser tabs or windows:
-
-- [http://localhost:5173/operator](http://localhost:5173/operator)
-- [http://localhost:5173/display](http://localhost:5173/display)
-- [http://localhost:5173/stage](http://localhost:5173/stage)
-
-## Production-Style Run
-
-This app is set up to run as a single Node service in production, which is the recommended setup for Render.
-
-1. Build the frontend:
-
-```bash
-npm run build
-```
-
-2. Start the production server:
-
-```bash
-npm start
-```
-
-3. Open the routes on the same origin:
-
-- `http://localhost:3001/operator`
-- `http://localhost:3001/display`
-- `http://localhost:3001/stage`
-
-## Current Features
-
-- Start from an empty Sunday service rundown or a fully blank presentation
-- Add editable sections, slides, text, and song items
-- Add, duplicate, move, delete, and format slides
-- Use the slide tool rail to edit text, add image backgrounds, attach audio cues, place emoji, and undo/redo edits
-- Paste song sections from text and rebuild song slides automatically
-- Run synchronized operator, display, and stage views
-- Use keyboard shortcuts for queueing, going live, blackout, logo, open, and export
-- Export projects as `.pandaslides`
-- Optional Web MIDI control input for previous, next, go-live, blackout, and logo
-
-## Workflow
-
-1. Open `/operator` on your control machine.
-2. Open `/display` on the audience screen.
-3. Open `/stage` on a confidence monitor.
-4. Create or open a project from the start panel.
-5. Click any slide in the rundown to queue it and use `Go Live` to push it to the other views.
-6. Use the transport controls, shortcuts, or MIDI bindings to control the live output in realtime.
-
-## Keyboard Shortcuts
-
-- `Right Arrow`: next slide live
-- `Left Arrow`: previous slide live
-- `Down Arrow`: queue next slide
-- `Up Arrow`: queue previous slide
-- `Space` or `Enter`: send the queued slide live
-- `B`: toggle blackout
-- `L`: toggle logo
-- `Ctrl/Cmd + S`: export `.pandaslides`
-- `Ctrl/Cmd + O`: open project file
-- `Ctrl/Cmd + N`: open the start panel
-- `Ctrl/Cmd + Z`: undo project edits
-- `Ctrl/Cmd + Shift + Z` or `Ctrl/Cmd + Y`: redo project edits
-
-## Render Deployment
-
-- Build command: `npm install && npm run build`
-- Start command: `npm start`
-- Runtime: Node
-- The Express server serves both the API/Socket.IO backend and the built frontend from `dist`.
-
-## Notes
-
-- The server runs on `http://localhost:3001`.
-- The frontend runs on `http://localhost:5173`.
-- Live state is stored in memory on the server and mirrored to local storage on the operator.
-- Web MIDI depends on browser support and user permission.
-- Images up to 5 MB and audio cues up to 10 MB are embedded directly in exported `.pandaslides` files.
