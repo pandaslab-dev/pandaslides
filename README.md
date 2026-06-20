@@ -1,10 +1,14 @@
 # PandaSlides
 
 Realtime browser-based presentation control for an operator screen, audience display, and stage confidence monitor.
+Orignally built for my personal volunteer church work, and to experiment with more non-artisinal development (Agents, claude, etc(
 
 ## Why I built it
 
-I built PandaSlides to explore a simpler live presentation workflow for churches, events, and performances while learning how to coordinate multiple synchronized screens in realtime. The project let me design both the editing experience and the live-output system instead of depending on a heavyweight existing presentation tool.
+I built PandaSlides to explore a simpler live presentation workflow for churches, events, and performances while learning how to coordinate multiple synchronized screens in realtime.
+The project let me design both the editing experience and the live-output system instead of depending on a heavyweight existing presentation tool.
+
+For this project, I made an attempt to utilize Codex and Claude to improve the front-end from my original design. Slowly trying to improve my trust of these models, as I know tasks will sometimes be handed off. 
 
 ## Tech stack
 
@@ -21,11 +25,11 @@ I built PandaSlides to explore a simpler live presentation workflow for churches
 
 - Three synchronized views: operator, display, and stage
 - Editable presentation projects with ordered sections and slides
-- `.pandaslides` import/export with embedded image and audio assets
+- `.pandaslides` import/export with embedded image and audio assets (Basically a JSON, but still useful)
 - Live queueing, go-live controls, blackout mode, and logo mode
 - Song section generation and text-to-song-slide rebuilding
 - Local recent-project persistence in the browser
-- Optional Web MIDI bindings for live controls
+- MIDI control
 
 ## What I learned
 
@@ -43,9 +47,5 @@ I built PandaSlides to explore a simpler live presentation workflow for churches
 
 ## Running locally
 
-For detailed setup, usage, and file-format docs, see [docs/running-and-usage.md](/Users/panda/Projects/2026/pandaslides/docs/running-and-usage.md) and [docs/pandaslides-format.md](/Users/panda/Projects/2026/pandaslides/docs/pandaslides-format.md).
+it can be run online at slides.pandaslab.dev, for local deployment see [docs/running-and-usage.md](/Users/panda/Projects/2026/pandaslides/docs/running-and-usage.md) and [docs/pandaslides-format.md](/Users/panda/Projects/2026/pandaslides/docs/pandaslides-format.md).
 
-```bash
-npm install
-npm run dev
-```
