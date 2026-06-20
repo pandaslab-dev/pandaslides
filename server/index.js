@@ -26,6 +26,28 @@ function isValidMode(value) {
   return value === "live" || value === "blackout" || value === "logo";
 }
 
+function normalizeSlideMedia(value, kind) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const expectedPrefix = kind === "image" ? "data:image/" : "data:audio/";
+  if (
+    typeof value.dataUrl !== "string" ||
+    !value.dataUrl.startsWith(expectedPrefix) ||
+    !isNonEmptyString(value.name) ||
+    !isNonEmptyString(value.mimeType)
+  ) {
+    return undefined;
+  }
+
+  return {
+    dataUrl: value.dataUrl,
+    name: value.name.trim(),
+    mimeType: value.mimeType.trim(),
+  };
+}
+
 function normalizeSlide(slide, slideIndex) {
   if (!isRecord(slide)) {
     throw new Error(`Slide ${slideIndex + 1} is not a valid object.`);
@@ -55,6 +77,9 @@ function normalizeSlide(slide, slideIndex) {
     align: SLIDE_ALIGNMENTS.has(slide.align) ? slide.align : "center",
     fontSize: SLIDE_FONT_SIZES.has(slide.fontSize) ? slide.fontSize : "lg",
     footer: isNonEmptyString(slide.footer) ? slide.footer.trim() : undefined,
+    image: normalizeSlideMedia(slide.image, "image"),
+    audio: normalizeSlideMedia(slide.audio, "audio"),
+    emoji: isNonEmptyString(slide.emoji) ? slide.emoji.trim().slice(0, 16) : undefined,
   };
 }
 
@@ -328,6 +353,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.resolve(__dirname, "../dist");
 const io = new Server(httpServer, {
+  maxHttpBufferSize: 25_000_000,
   cors: {
     origin: process.env.NODE_ENV === "production" ? true : ["http://localhost:5173"],
     methods: ["GET", "POST"],

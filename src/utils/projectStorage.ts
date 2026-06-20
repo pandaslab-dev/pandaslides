@@ -11,6 +11,7 @@ import {
   type Slide,
   type SlideAlignment,
   type SlideFontSize,
+  type SlideMedia,
 } from "../types/project";
 
 const RECENT_PROJECTS_KEY = "pandaslides.recent-projects";
@@ -98,6 +99,28 @@ function sanitizeBody(body: string) {
   return body.replace(/\r\n/g, "\n");
 }
 
+function normalizeSlideMedia(value: unknown, kind: "image" | "audio"): SlideMedia | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const expectedPrefix = kind === "image" ? "data:image/" : "data:audio/";
+  if (
+    typeof value.dataUrl !== "string" ||
+    !value.dataUrl.startsWith(expectedPrefix) ||
+    !isNonEmptyString(value.name) ||
+    !isNonEmptyString(value.mimeType)
+  ) {
+    return undefined;
+  }
+
+  return {
+    dataUrl: value.dataUrl,
+    name: value.name.trim(),
+    mimeType: value.mimeType.trim(),
+  };
+}
+
 function sanitizeName(value: string, fallbackName?: string) {
   const fallback = fallbackName?.replace(/\.pandaslides$/i, "").replace(/\.json$/i, "").trim();
   return value.trim() || fallback || "";
@@ -136,6 +159,9 @@ function normalizeNewSlide(rawSlide: Record<string, unknown>, slideIndex: number
     align: isSlideAlignment(rawSlide.align) ? rawSlide.align : "center",
     fontSize: isSlideFontSize(rawSlide.fontSize) ? rawSlide.fontSize : "lg",
     footer: isNonEmptyString(rawSlide.footer) ? rawSlide.footer.trim() : undefined,
+    image: normalizeSlideMedia(rawSlide.image, "image"),
+    audio: normalizeSlideMedia(rawSlide.audio, "audio"),
+    emoji: isNonEmptyString(rawSlide.emoji) ? rawSlide.emoji.trim().slice(0, 16) : undefined,
   };
 }
 
@@ -265,7 +291,11 @@ export function cloneProject(project: PandaSlidesProject): PandaSlidesProject {
     ...project,
     serviceItems: project.serviceItems.map((serviceItem) => ({
       ...serviceItem,
-      slides: serviceItem.slides.map((slide) => ({ ...slide })),
+      slides: serviceItem.slides.map((slide) => ({
+        ...slide,
+        image: slide.image ? { ...slide.image } : undefined,
+        audio: slide.audio ? { ...slide.audio } : undefined,
+      })),
     })),
   };
 }
@@ -416,7 +446,11 @@ export function saveLastOpenedProject(project: PandaSlidesProject) {
     return;
   }
 
-  window.localStorage.setItem(LAST_OPENED_PROJECT_KEY, JSON.stringify(project));
+  try {
+    window.localStorage.setItem(LAST_OPENED_PROJECT_KEY, JSON.stringify(project));
+  } catch {
+    // Large embedded media can exceed localStorage; the live workspace and export remain authoritative.
+  }
 }
 
 export function saveRecentProject(project: PandaSlidesProject) {
@@ -434,7 +468,11 @@ export function saveRecentProject(project: PandaSlidesProject) {
   };
 
   const nextList = [nextEntry, ...loadRecentProjects().filter((entry) => entry.id !== project.id)].slice(0, MAX_RECENT_PROJECTS);
-  window.localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(nextList));
+  try {
+    window.localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(nextList));
+  } catch {
+    return loadRecentProjects();
+  }
   return nextList;
 }
 

@@ -129,8 +129,8 @@ function createDefaultSlidesForType(type: Exclude<ServiceItemType, "song">): Sli
       return [
         {
           title: "New Slide",
-          body: "Add slide content here",
-          footer: "CUSTOM",
+          body: "",
+          footer: "",
         },
       ];
   }
@@ -182,17 +182,37 @@ export function createServiceItemTemplate(type: ServiceItemType, title?: string)
   } satisfies ServiceItem;
 }
 
-export function createBlankSlide(title = "New Slide", body = "Add slide content here", orderIndex = 0): Slide {
+export function createBlankSlide(title = "New Slide", body = "", orderIndex = 0): Slide {
   return createSlide({ title, body, footer: "SLIDE" }, orderIndex);
+}
+
+function createEmptyServiceItem(
+  type: Exclude<ServiceItemType, "song">,
+  title: string,
+  slideTitle: string,
+  orderIndex: number,
+): ServiceItem {
+  const serviceItem = createServiceItemTemplate(type, title);
+
+  return {
+    ...serviceItem,
+    orderIndex,
+    slides: [
+      {
+        ...createBlankSlide(slideTitle, "", 0),
+        footer: type === "custom" ? "" : type.toUpperCase(),
+      },
+    ],
+  };
 }
 
 export function createBlankProject(): PandaSlidesProject {
   return stampProject(
     {
-      name: "Blank Project",
+      name: "Untitled Presentation",
       schemaVersion: PROJECT_SCHEMA_VERSION,
       kind: "blank",
-      serviceItems: [],
+      serviceItems: [createEmptyServiceItem("custom", "Section 1", "Slide 1", 0)],
     },
     "blank",
   );
@@ -207,14 +227,21 @@ export function createDemoProject(): PandaSlidesProject {
 }
 
 export function createSundayServiceTemplate(): PandaSlidesProject {
-  const project = cloneProject(demoService);
-  return {
-    ...project,
-    id: createEntityId("service"),
-    name: "Sunday Service",
-    kind: "service",
-    updatedAt: nowIsoString(),
-  };
+  return stampProject(
+    {
+      name: "Sunday Service",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      kind: "service",
+      serviceItems: [
+        createEmptyServiceItem("welcome", "Welcome", "Welcome", 0),
+        createEmptyServiceItem("custom", "Worship", "Song", 1),
+        createEmptyServiceItem("scripture", "Scripture", "Reading", 2),
+        createEmptyServiceItem("message", "Message", "Title Slide", 3),
+        createEmptyServiceItem("closing", "Closing", "Closing", 4),
+      ],
+    },
+    "service",
+  );
 }
 
 export function createEventDeckTemplate(): PandaSlidesProject {

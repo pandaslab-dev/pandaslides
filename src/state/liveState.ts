@@ -355,8 +355,12 @@ export function saveLocalWorkspaceState(state: WorkspaceState) {
     return;
   }
 
-  window.localStorage.setItem(localWorkspaceKey, JSON.stringify(state));
-  window.dispatchEvent(new CustomEvent(localWorkspaceEvent));
+  try {
+    window.localStorage.setItem(localWorkspaceKey, JSON.stringify(state));
+    window.dispatchEvent(new CustomEvent(localWorkspaceEvent));
+  } catch {
+    // Embedded media may exceed localStorage, but remains available from the live server and project export.
+  }
 }
 
 export function useLiveStateConnection() {

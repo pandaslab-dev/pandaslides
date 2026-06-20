@@ -9,11 +9,8 @@ type StartPanelProps = {
   onClose: () => void;
   onToggleHideOnStartup: (hidden: boolean) => void;
   onOpenProjectFile: () => void;
-  onLoadDemo: () => void;
   onCreateBlank: () => void;
   onCreateSundayService: () => void;
-  onCreateEventDeck: () => void;
-  onCreateSongSet: () => void;
   onOpenRecentProject: (project: RecentProjectRecord) => void;
   onLearnAction: (topic: string) => void;
 };
@@ -80,11 +77,8 @@ export function StartPanel({
   onClose,
   onToggleHideOnStartup,
   onOpenProjectFile,
-  onLoadDemo,
   onCreateBlank,
   onCreateSundayService,
-  onCreateEventDeck,
-  onCreateSongSet,
   onOpenRecentProject,
   onLearnAction,
 }: StartPanelProps) {
@@ -216,11 +210,6 @@ export function StartPanel({
                   onClick={onOpenProjectFile}
                   accent
                 />
-                <ActionRow
-                  label="Load Demo Service"
-                  description="Open the built-in Sunday Service demo."
-                  onClick={onLoadDemo}
-                />
 
                 {/* Recent projects */}
                 <div className="border-t border-[#1a2230]">
@@ -255,26 +244,19 @@ export function StartPanel({
               {/* CREATE */}
               <PanelCol title="Create New">
                 <ActionRow
-                  label="Blank Presentation"
-                  description="Start from an empty project."
-                  onClick={onCreateBlank}
+                  label="Sunday Service"
+                  description="An empty church rundown with Welcome, Worship, Scripture, Message, and Closing sections."
+                  onClick={onCreateSundayService}
                   accent
                 />
                 <ActionRow
-                  label="Sunday Service"
-                  description="Church-ready rundown with worship and sermon."
-                  onClick={onCreateSundayService}
+                  label="Blank Presentation"
+                  description="One empty section and slide, ready for your text."
+                  onClick={onCreateBlank}
                 />
-                <ActionRow
-                  label="Event Deck"
-                  description="Simple live event presentation deck."
-                  onClick={onCreateEventDeck}
-                />
-                <ActionRow
-                  label="Song Set"
-                  description="Quick worship or setlist project."
-                  onClick={onCreateSongSet}
-                />
+                <div className="border-t border-[#1a2230] px-3 py-3 text-[10px] leading-[1.6] text-[#4a5a6e]">
+                  Add sections and slides from the rundown after creating either project.
+                </div>
               </PanelCol>
 
               {/* LEARN */}

@@ -1,6 +1,6 @@
 # PandaSlides
 
-PandaSlides is a lightweight browser-based live presentation control demo with three synchronized views:
+PandaSlides is a lightweight browser-based live presentation controller with three synchronized views:
 
 - `/operator` for slide control
 - `/display` for the audience output
@@ -58,16 +58,17 @@ npm start
 
 ## Current Features
 
-- Create new blank, service, event, and song-set projects
-- Add service items and song items
+- Start from an empty Sunday service rundown or a fully blank presentation
+- Add editable sections, slides, text, and song items
 - Add, duplicate, move, delete, and format slides
+- Use the slide tool rail to edit text, add image backgrounds, attach audio cues, place emoji, and undo/redo edits
 - Paste song sections from text and rebuild song slides automatically
 - Run synchronized operator, display, and stage views
 - Use keyboard shortcuts for queueing, going live, blackout, logo, open, and export
 - Export projects as `.pandaslides`
 - Optional Web MIDI control input for previous, next, go-live, blackout, and logo
 
-## Demo Workflow
+## Workflow
 
 1. Open `/operator` on your control machine.
 2. Open `/display` on the audience screen.
@@ -88,6 +89,8 @@ npm start
 - `Ctrl/Cmd + S`: export `.pandaslides`
 - `Ctrl/Cmd + O`: open project file
 - `Ctrl/Cmd + N`: open the start panel
+- `Ctrl/Cmd + Z`: undo project edits
+- `Ctrl/Cmd + Shift + Z` or `Ctrl/Cmd + Y`: redo project edits
 
 ## Render Deployment
 
@@ -102,3 +105,4 @@ npm start
 - The frontend runs on `http://localhost:5173`.
 - Live state is stored in memory on the server and mirrored to local storage on the operator.
 - Web MIDI depends on browser support and user permission.
+- Images up to 5 MB and audio cues up to 10 MB are embedded directly in exported `.pandaslides` files.

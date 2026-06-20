@@ -1,4 +1,4 @@
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 
 export const PROJECT_KINDS = ["blank", "service", "event", "song-set", "demo", "custom"] as const;
 export type ProjectKind = (typeof PROJECT_KINDS)[number];
@@ -20,6 +20,12 @@ export type SlideAlignment = (typeof SLIDE_ALIGNMENTS)[number];
 export const SLIDE_FONT_SIZES = ["sm", "md", "lg", "xl"] as const;
 export type SlideFontSize = (typeof SLIDE_FONT_SIZES)[number];
 
+export type SlideMedia = {
+  dataUrl: string;
+  name: string;
+  mimeType: string;
+};
+
 export type Slide = {
   id: string;
   title: string;
@@ -28,6 +34,9 @@ export type Slide = {
   align?: SlideAlignment;
   fontSize?: SlideFontSize;
   footer?: string;
+  image?: SlideMedia;
+  audio?: SlideMedia;
+  emoji?: string;
 };
 
 export type ServiceItem = {

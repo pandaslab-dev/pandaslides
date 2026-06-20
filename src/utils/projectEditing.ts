@@ -7,7 +7,7 @@ import {
   type SongTemplateKey,
 } from "../data/projectTemplates";
 import { cloneProject } from "./projectStorage";
-import type { PandaSlidesProject, ServiceItem, ServiceItemType, Slide } from "../types/project";
+import type { PandaSlidesProject, ServiceItem, ServiceItemType, Slide, SlideMedia } from "../types/project";
 
 function nowIsoString() {
   return new Date().toISOString();
@@ -269,7 +269,7 @@ export function updateSlide(
   project: PandaSlidesProject,
   serviceItemId: string,
   slideId: string,
-  patch: Partial<Pick<Slide, "title" | "body" | "align" | "fontSize" | "footer">>,
+  patch: Partial<Pick<Slide, "title" | "body" | "align" | "fontSize" | "footer" | "image" | "audio" | "emoji">>,
 ) {
   return updateServiceItemById(project, serviceItemId, (serviceItem) => ({
     ...serviceItem,
@@ -282,8 +282,21 @@ export function updateSlide(
             align: patch.align ?? slide.align,
             fontSize: patch.fontSize ?? slide.fontSize,
             footer: patch.footer ?? slide.footer,
+            image: "image" in patch ? patch.image : slide.image,
+            audio: "audio" in patch ? patch.audio : slide.audio,
+            emoji: "emoji" in patch ? patch.emoji : slide.emoji,
           }
         : slide,
     ),
   }));
+}
+
+export function updateSlideMedia(
+  project: PandaSlidesProject,
+  serviceItemId: string,
+  slideId: string,
+  kind: "image" | "audio",
+  media?: SlideMedia,
+) {
+  return updateSlide(project, serviceItemId, slideId, { [kind]: media });
 }

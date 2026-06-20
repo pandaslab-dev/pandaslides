@@ -6,17 +6,16 @@ import {
   useState,
   type ChangeEvent,
   type InputHTMLAttributes,
+  type Ref,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
 import { SlideCanvas } from "../components/SlideCanvas";
+import { SlideEditorToolbar, type SlideEditorTool } from "../components/SlideEditorToolbar";
 import { StartPanel } from "../components/StartPanel";
 import {
   SONG_TEMPLATE_OPTIONS,
   createBlankProject,
-  createDemoProject,
-  createEventDeckTemplate,
-  createSongSetTemplate,
   createSundayServiceTemplate,
   type SongTemplateKey,
 } from "../data/projectTemplates";
@@ -33,6 +32,7 @@ import {
   replaceSongSlidesFromText,
   updateServiceItem,
   updateSlide,
+  updateSlideMedia,
   duplicateSlide,
 } from "../utils/projectEditing";
 import {
@@ -56,11 +56,12 @@ import {
   type WorkspaceState,
 } from "../state/liveState";
 import { formatMidiBinding, useMidiControls, type MidiAction } from "../utils/midiControl";
-import type { PandaSlidesProject, ProjectKind, ServiceItem, ServiceItemType, SlideAlignment, SlideFontSize } from "../types/project";
+import type { PandaSlidesProject, ServiceItem, ServiceItemType, SlideAlignment, SlideFontSize } from "../types/project";
 import {
   formatUpdatedAt,
   getProjectDownloadName,
   getProjectKindLabel,
+  cloneProject,
   loadLastOpenedProject,
   loadRecentProjects,
   normalizeProject,
@@ -73,7 +74,7 @@ import {
   type RecentProjectRecord,
 } from "../utils/projectStorage";
 
-type FileMenuCommand = "new" | "open" | "save" | "export" | "demo" | "start";
+type FileMenuCommand = "new" | "open" | "save" | "export" | "start";
 
 const ITEM_TYPE_OPTIONS: { value: ServiceItemType; label: string }[] = [
   { value: "welcome", label: "Welcome" },
@@ -85,14 +86,6 @@ const ITEM_TYPE_OPTIONS: { value: ServiceItemType; label: string }[] = [
 ];
 
 const SONG_SECTION_OPTIONS = ["Verse 1", "Verse 2", "Chorus", "Bridge", "Tag", "Ending"];
-const PROJECT_KIND_OPTIONS: { value: ProjectKind; label: string }[] = [
-  { value: "blank", label: "Blank" },
-  { value: "service", label: "Service" },
-  { value: "event", label: "Event" },
-  { value: "song-set", label: "Song Set" },
-  { value: "demo", label: "Demo" },
-  { value: "custom", label: "Custom" },
-];
 const SLIDE_ALIGNMENT_OPTIONS: { value: SlideAlignment; label: string }[] = [
   { value: "left", label: "Left" },
   { value: "center", label: "Center" },
@@ -111,6 +104,55 @@ const MIDI_ACTION_LABELS: Record<MidiAction, string> = {
   blackout: "Blackout",
   logo: "Logo",
 };
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const MAX_SLIDE_IMAGE_WIDTH = 1920;
+const MAX_SLIDE_IMAGE_HEIGHT = 1080;
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Unable to read that file."));
+      }
+    });
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("Unable to read that file.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function optimizeSlideImage(file: File) {
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.addEventListener("load", () => resolve(nextImage), { once: true });
+      nextImage.addEventListener("error", () => reject(new Error("Unable to decode that image.")), { once: true });
+      nextImage.src = sourceUrl;
+    });
+
+    const scale = Math.min(1, MAX_SLIDE_IMAGE_WIDTH / image.naturalWidth, MAX_SLIDE_IMAGE_HEIGHT / image.naturalHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Unable to prepare that image.");
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return {
+      dataUrl: canvas.toDataURL("image/webp", 0.82),
+      mimeType: "image/webp",
+    };
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 
 function buildSlideRef(serviceItemId: string, slideId: string): SlideRef {
   return { serviceItemId, slideId };
@@ -270,7 +312,7 @@ function ChromeInput(props: InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-function ChromeTextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function ChromeTextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
   return (
     <textarea
       {...props}
@@ -319,8 +361,15 @@ function CompactAction({
 
 export function OperatorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const slideBodyInputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileMenuRef = useRef<HTMLDivElement | null>(null);
   const bootstrapAttemptedRef = useRef(false);
+  const undoStackRef = useRef<PandaSlidesProject[]>([]);
+  const redoStackRef = useRef<PandaSlidesProject[]>([]);
+  const pendingProjectEmitRef = useRef<number | null>(null);
+  const lastHistoryMutationRef = useRef<{ key: string; at: number } | null>(null);
   const socket = getSocket();
   const { workspace: remoteWorkspace, loading: syncLoading, error: syncError } = useLiveStateConnection();
 
@@ -333,11 +382,15 @@ export function OperatorPage() {
   const [hideStartPanelOnStartup, setHideStartPanelOnStartup] = useState(() => readHideStartPanelPreference());
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [newItemType, setNewItemType] = useState<ServiceItemType>("welcome");
+  const [newItemType, setNewItemType] = useState<ServiceItemType>("custom");
+  const [newItemTitle, setNewItemTitle] = useState("New Section");
   const [newSongTitle, setNewSongTitle] = useState("New Song");
   const [newSongTemplate, setNewSongTemplate] = useState<SongTemplateKey>("basic-song");
   const [newSongSection, setNewSongSection] = useState("Verse 1");
   const [songDraftText, setSongDraftText] = useState("");
+  const [activeEditorTool, setActiveEditorTool] = useState<SlideEditorTool>("select");
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const snapshot = useMemo(() => buildLiveStateSnapshot(workspace), [workspace]);
   const project = snapshot.project;
@@ -350,6 +403,8 @@ export function OperatorPage() {
 
   const selectedItem = selectedEntry?.item ?? currentItem ?? null;
   const selectedSlideRef = selectedEntry?.ref ?? null;
+  const canUndo = historyVersion >= 0 && undoStackRef.current.length > 0;
+  const canRedo = historyVersion >= 0 && redoStackRef.current.length > 0;
   const midiControls = useMidiControls({
     onAction(action) {
       switch (action) {
@@ -446,9 +501,30 @@ export function OperatorPage() {
     setSongDraftText(formatSongDraft(selectedItem));
   }, [selectedItem?.id, selectedItem?.type]);
 
+  useEffect(() => {
+    setActiveEditorTool("select");
+    setEmojiPickerOpen(false);
+  }, [selectedEntry?.slide.id]);
+
   const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
     const modifierPressed = event.metaKey || event.ctrlKey;
+    if (modifierPressed && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+      return;
+    }
+
+    if (modifierPressed && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      handleRedo();
+      return;
+    }
+
     if (modifierPressed && event.key.toLowerCase() === "s") {
       event.preventDefault();
       if (!project) {
@@ -510,6 +586,15 @@ export function OperatorPage() {
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [handleGlobalKeyDown]);
 
+  useEffect(
+    () => () => {
+      if (pendingProjectEmitRef.current !== null) {
+        window.clearTimeout(pendingProjectEmitRef.current);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
       if (!fileMenuRef.current || !menuOpen) {
@@ -527,12 +612,26 @@ export function OperatorPage() {
 
   function pushProjectState(nextState: WorkspaceState, eventName: "project:load" | "project:update", successMessage?: string) {
     setWorkspace(nextState);
-    socket.emit(eventName, {
+    const payload = {
       project: nextState.project,
       selected: nextState.selected,
       live: nextState.live,
       mode: nextState.mode,
-    });
+    };
+
+    if (pendingProjectEmitRef.current !== null) {
+      window.clearTimeout(pendingProjectEmitRef.current);
+      pendingProjectEmitRef.current = null;
+    }
+
+    if (eventName === "project:update") {
+      pendingProjectEmitRef.current = window.setTimeout(() => {
+        socket.emit(eventName, payload);
+        pendingProjectEmitRef.current = null;
+      }, 120);
+    } else {
+      socket.emit(eventName, payload);
+    }
 
     if (successMessage) {
       setNotice(successMessage);
@@ -562,6 +661,10 @@ export function OperatorPage() {
 
   function loadProject(projectInput: PandaSlidesProject, successMessage: string) {
     const nextProject = normalizeProject({ ...projectInput, updatedAt: new Date().toISOString() }, projectInput.name);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    lastHistoryMutationRef.current = null;
+    setHistoryVersion((version) => version + 1);
     pushProject(nextProject, "project:load", successMessage);
   }
 
@@ -569,13 +672,63 @@ export function OperatorPage() {
     updater: (project: PandaSlidesProject) => PandaSlidesProject,
     successMessage?: string,
     overrides?: Partial<Pick<WorkspaceState, "selected" | "live" | "mode">>,
+    historyKey?: string,
   ) {
     if (!workspace.project) {
       return;
     }
 
     const nextProject = updater(workspace.project);
+    if (nextProject === workspace.project) {
+      return;
+    }
+
+    const now = Date.now();
+    const shouldCoalesce =
+      historyKey &&
+      lastHistoryMutationRef.current?.key === historyKey &&
+      now - lastHistoryMutationRef.current.at < 750;
+    if (!shouldCoalesce) {
+      undoStackRef.current = [...undoStackRef.current.slice(-49), cloneProject(workspace.project)];
+    }
+    lastHistoryMutationRef.current = historyKey ? { key: historyKey, at: now } : null;
+    redoStackRef.current = [];
+    setHistoryVersion((version) => version + 1);
     pushProject(nextProject, "project:update", successMessage, overrides);
+  }
+
+  function handleUndo() {
+    if (!workspace.project || undoStackRef.current.length === 0) {
+      return;
+    }
+
+    const previousProject = undoStackRef.current.at(-1);
+    if (!previousProject) {
+      return;
+    }
+
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current.slice(-49), cloneProject(workspace.project)];
+    lastHistoryMutationRef.current = null;
+    setHistoryVersion((version) => version + 1);
+    pushProject(previousProject, "project:update", "Undo");
+  }
+
+  function handleRedo() {
+    if (!workspace.project || redoStackRef.current.length === 0) {
+      return;
+    }
+
+    const nextProject = redoStackRef.current.at(-1);
+    if (!nextProject) {
+      return;
+    }
+
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current.slice(-49), cloneProject(workspace.project)];
+    lastHistoryMutationRef.current = null;
+    setHistoryVersion((version) => version + 1);
+    pushProject(nextProject, "project:update", "Redo");
   }
 
   function handleOpenProjectFile() {
@@ -617,11 +770,6 @@ export function OperatorPage() {
         downloadProject(project);
         setNotice(`${project.name} exported.`);
         break;
-      case "demo": {
-        const demo = createDemoProject();
-        loadProject(demo, `${demo.name} demo loaded.`);
-        break;
-      }
       case "start":
         setStartPanelOpen(true);
         break;
@@ -673,18 +821,19 @@ export function OperatorPage() {
     window.open(route, "_blank", "noopener,noreferrer");
   }
 
-  function handleAddServiceItem() {
+  function handleAddServiceItem(type = newItemType, title = newItemTitle) {
     if (!workspace.project) {
       return;
     }
 
-    const nextProject = appendServiceItem(workspace.project, newItemType);
+    const nextProject = appendServiceItem(workspace.project, type, title.trim() || "New Section");
     const nextItem = nextProject.serviceItems.at(-1);
     const nextRef = nextItem?.slides[0] ? { serviceItemId: nextItem.id, slideId: nextItem.slides[0].id } : null;
-    pushProject(nextProject, "project:update", `${nextItem?.title ?? "Service item"} added.`, {
+    pushProject(nextProject, "project:update", `${nextItem?.title ?? "Section"} added.`, {
       selected: nextRef,
       live: workspace.live,
     });
+    setNewItemTitle("New Section");
   }
 
   function handleAddSongItem() {
@@ -799,6 +948,93 @@ export function OperatorPage() {
     });
   }
 
+  async function handleMediaFileChange(event: ChangeEvent<HTMLInputElement>, kind: "image" | "audio") {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !workspace.project || !selectedEntry) {
+      return;
+    }
+
+    const expectedPrefix = kind === "image" ? "image/" : "audio/";
+    const maxBytes = kind === "image" ? MAX_IMAGE_BYTES : MAX_AUDIO_BYTES;
+    if (!file.type.startsWith(expectedPrefix)) {
+      setNotice(`Choose a valid ${kind} file.`);
+      return;
+    }
+
+    if (file.size > maxBytes) {
+      setNotice(`${kind === "image" ? "Images" : "Audio files"} must be smaller than ${maxBytes / 1024 / 1024} MB.`);
+      return;
+    }
+
+    try {
+      const optimizedImage = kind === "image" ? await optimizeSlideImage(file) : null;
+      const dataUrl = optimizedImage?.dataUrl ?? (await readFileAsDataUrl(file));
+      updateCurrentProject(
+        (currentProject) =>
+          updateSlideMedia(currentProject, selectedEntry.item.id, selectedEntry.slide.id, kind, {
+            dataUrl,
+            name: file.name,
+            mimeType: optimizedImage?.mimeType ?? file.type,
+          }),
+        `${kind === "image" ? "Image" : "Audio"} added to ${selectedEntry.slide.title}.`,
+      );
+      setActiveEditorTool("select");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `Unable to add that ${kind}.`);
+    }
+  }
+
+  function handleEditorToolChange(tool: SlideEditorTool) {
+    if (!selectedEntry) {
+      return;
+    }
+
+    setActiveEditorTool(tool);
+    setEmojiPickerOpen(tool === "emoji" ? !emojiPickerOpen : false);
+
+    if (tool === "text") {
+      window.requestAnimationFrame(() => {
+        slideBodyInputRef.current?.focus();
+        slideBodyInputRef.current?.select();
+      });
+    } else if (tool === "image") {
+      imageInputRef.current?.click();
+    } else if (tool === "audio") {
+      audioInputRef.current?.click();
+    }
+  }
+
+  function handleChooseEmoji(emoji: string) {
+    if (!selectedEntry) {
+      return;
+    }
+
+    updateCurrentProject(
+      (currentProject) =>
+        updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+          emoji,
+        }),
+      "Emoji added.",
+    );
+    setEmojiPickerOpen(false);
+    setActiveEditorTool("select");
+  }
+
+  function handleRemoveSlideMedia(kind: "image" | "audio" | "emoji") {
+    if (!selectedEntry) {
+      return;
+    }
+
+    updateCurrentProject(
+      (currentProject) =>
+        updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+          [kind]: undefined,
+        }),
+      `${kind === "emoji" ? "Emoji" : `${kind[0].toUpperCase()}${kind.slice(1)}`} removed.`,
+    );
+  }
+
   function handleDuplicateSlide() {
     if (!workspace.project || !selectedEntry) {
       return;
@@ -812,6 +1048,11 @@ export function OperatorPage() {
 
   function handleDeleteSlide() {
     if (!workspace.project || !selectedEntry) {
+      return;
+    }
+
+    if (selectedEntry.item.slides.length === 1) {
+      setNotice("Each section needs at least one slide.");
       return;
     }
 
@@ -878,6 +1119,24 @@ export function OperatorPage() {
         className="hidden"
         onChange={handleProjectFileChange}
       />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          void handleMediaFileChange(event, "image");
+        }}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={(event) => {
+          void handleMediaFileChange(event, "audio");
+        }}
+      />
 
       <header className="app-menubar flex h-[34px] flex-none items-stretch border-b border-[#1e2835]">
         <button
@@ -909,7 +1168,6 @@ export function OperatorPage() {
                     ["New Project", "new"],
                     ["Open Project…", "open"],
                     ["Save / Export", "save"],
-                    ["Load Demo", "demo"],
                     ["Show Start Panel", "start"],
                   ] as [string, FileMenuCommand][]
                 ).map(([label, command]) => (
@@ -932,10 +1190,10 @@ export function OperatorPage() {
               type="button"
               onClick={() => {
                 const messages: Record<string, string> = {
-                  Edit: "Use the inspector panel to update service items and slides.",
+                  Edit: "Use the inspector panel to update sections, slides, and text.",
                   View: "Open /display or /stage in separate tabs for live output routing.",
                   Output: "Display and stage reconnect automatically to the latest live state.",
-                  Help: "Shortcuts: → next live · ← previous live · ↓ queue next · ↑ queue previous · Space or Enter go live · B blackout · L logo · Ctrl/Cmd+S export.",
+                  Help: "Shortcuts: → next live · ← previous live · ↓ queue next · ↑ queue previous · Space or Enter go live · B blackout · L logo · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Ctrl/Cmd+S export.",
                 };
                 setNotice(messages[label]);
               }}
@@ -988,10 +1246,11 @@ export function OperatorPage() {
               {hasSlides ? <span className="font-mono text-[10px] text-[#2e3d50]">{flatSlides.length}</span> : null}
               <button
                 type="button"
-                onClick={() => setStartPanelOpen(true)}
-                className="text-[10px] text-amber-400/50 transition-colors hover:text-amber-300"
+                disabled={!project}
+                onClick={() => handleAddServiceItem("custom", "New Section")}
+                className="text-[10px] text-amber-400/50 transition-colors hover:text-amber-300 disabled:cursor-not-allowed disabled:text-[#2e3d50]"
               >
-                + New
+                + Section
               </button>
             </div>
           </div>
@@ -1057,10 +1316,16 @@ export function OperatorPage() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => setStartPanelOpen(true)}
+                  onClick={() => {
+                    if (project) {
+                      handleAddServiceItem("custom", "New Section");
+                    } else {
+                      setStartPanelOpen(true);
+                    }
+                  }}
                   className="mt-2 text-[11px] text-amber-400/60 transition-colors hover:text-amber-300"
                 >
-                  {project ? "Add a service item →" : "Open a project →"}
+                  {project ? "Add a section →" : "Create or open a project →"}
                 </button>
               </div>
             )}
@@ -1133,9 +1398,34 @@ export function OperatorPage() {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 p-2">
+            <div className="relative min-h-0 flex-1 p-2">
               {selectedEntry ? (
-                <SlideCanvas slide={selectedEntry.slide} compact className="h-full" emptyStateLabel="No slide text" />
+                <>
+                  <SlideEditorToolbar
+                    activeTool={activeEditorTool}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    hasImage={Boolean(selectedEntry.slide.image)}
+                    hasAudio={Boolean(selectedEntry.slide.audio)}
+                    hasEmoji={Boolean(selectedEntry.slide.emoji)}
+                    emojiPickerOpen={emojiPickerOpen}
+                    onToolChange={handleEditorToolChange}
+                    onChooseEmoji={handleChooseEmoji}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                  />
+                  <SlideCanvas
+                    slide={selectedEntry.slide}
+                    compact
+                    editable
+                    onTextClick={() => handleEditorToolChange("text")}
+                    className="h-full"
+                    emptyStateLabel="Select the text tool to add copy"
+                  />
+                  <div className="pointer-events-none absolute bottom-4 left-4 z-[2] bg-black/45 px-2 py-1 text-[8px] font-bold tracking-[0.18em] text-white/35 uppercase">
+                    Editor Preview
+                  </div>
+                </>
               ) : (
                 <EmptyMonitor label="Select a slide to queue" />
               )}
@@ -1215,22 +1505,6 @@ export function OperatorPage() {
                         }
                         placeholder="Project name"
                       />
-                      <ChromeSelect
-                        value={project.kind}
-                        onChange={(event) =>
-                          updateCurrentProject((currentProject) => ({
-                            ...currentProject,
-                            kind: event.target.value as ProjectKind,
-                            updatedAt: new Date().toISOString(),
-                          }))
-                        }
-                      >
-                        {PROJECT_KIND_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </ChromeSelect>
                       <div className="grid grid-cols-2 gap-1.5">
                         <CompactAction label="Open Display" onClick={() => openOutputWindow("/display")} />
                         <CompactAction label="Open Stage" onClick={() => openOutputWindow("/stage")} />
@@ -1240,8 +1514,13 @@ export function OperatorPage() {
                 ) : null}
 
                 <div className="px-3 py-2.5">
-                  <FieldLabel>New Service Item</FieldLabel>
+                  <FieldLabel>New Section</FieldLabel>
                   <div className="mt-2 space-y-2">
+                    <ChromeInput
+                      value={newItemTitle}
+                      onChange={(event) => setNewItemTitle(event.target.value)}
+                      placeholder="Section name"
+                    />
                     <ChromeSelect value={newItemType} onChange={(event) => setNewItemType(event.target.value as ServiceItemType)}>
                       {ITEM_TYPE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -1249,7 +1528,7 @@ export function OperatorPage() {
                         </option>
                       ))}
                     </ChromeSelect>
-                    <CompactAction label="Add Item" onClick={handleAddServiceItem} disabled={!project} accent />
+                    <CompactAction label="Add Section" onClick={() => handleAddServiceItem()} disabled={!project} accent />
                   </div>
                 </div>
 
@@ -1270,14 +1549,14 @@ export function OperatorPage() {
 
                 {selectedItem ? (
                   <div className="px-3 py-2.5">
-                    <FieldLabel>Service Item</FieldLabel>
+                    <FieldLabel>Section</FieldLabel>
                     <div className="mt-2 space-y-2">
                       <ChromeInput
                         value={selectedItem.title}
                         onChange={(event) =>
                           updateCurrentProject((currentProject) => updateServiceItem(currentProject, selectedItem.id, { title: event.target.value }))
                         }
-                        placeholder="Service item title"
+                        placeholder="Section title"
                       />
                       <ChromeInput
                         value={selectedItem.subtitle ?? ""}
@@ -1305,7 +1584,7 @@ export function OperatorPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-1.5">
                         <CompactAction label="Duplicate" onClick={handleDuplicateServiceItem} disabled={!project} />
-                        <CompactAction label="Delete Item" onClick={handleDeleteServiceItem} disabled={!project} />
+                        <CompactAction label="Delete Section" onClick={handleDeleteServiceItem} disabled={!project} />
                       </div>
                       <div className="flex gap-1.5">
                         <CompactAction label="+ Slide" onClick={handleAddSlide} disabled={!project} />
@@ -1343,7 +1622,11 @@ export function OperatorPage() {
                     <div className="mt-2 space-y-2">
                       <div className="flex gap-1.5">
                         <CompactAction label="Duplicate" onClick={handleDuplicateSlide} disabled={!project} />
-                        <CompactAction label="Delete" onClick={handleDeleteSlide} disabled={!project} />
+                        <CompactAction
+                          label="Delete"
+                          onClick={handleDeleteSlide}
+                          disabled={!project || selectedEntry.item.slides.length === 1}
+                        />
                       </div>
                       <div className="flex gap-1.5">
                         <CompactAction label="Move Up" onClick={() => handleMoveSelectedSlide("up")} disabled={!project || selectedEntry.slideIndex === 0} />
@@ -1365,12 +1648,17 @@ export function OperatorPage() {
                         placeholder="Slide title"
                       />
                       <ChromeTextArea
+                        ref={slideBodyInputRef}
                         value={selectedEntry.slide.body}
                         onChange={(event) =>
-                          updateCurrentProject((currentProject) =>
-                            updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
-                              body: event.target.value,
-                            }),
+                          updateCurrentProject(
+                            (currentProject) =>
+                              updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+                                body: event.target.value,
+                              }),
+                            undefined,
+                            undefined,
+                            `slide-body:${selectedEntry.slide.id}`,
                           )
                         }
                         placeholder="Slide text"
@@ -1420,6 +1708,49 @@ export function OperatorPage() {
                         }
                         placeholder="Footer / lower-third"
                       />
+                      <div className="border-t border-[#1e2835] pt-2">
+                        <FieldLabel>Slide Media</FieldLabel>
+                        <div className="mt-2 space-y-2">
+                          {selectedEntry.slide.image ? (
+                            <div className="flex items-center gap-2 border border-[#1e2835] bg-[#0b1119] p-2">
+                              <img
+                                src={selectedEntry.slide.image.dataUrl}
+                                alt=""
+                                className="h-10 w-14 flex-none object-cover"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[11px] text-[#c0ccd8]">{selectedEntry.slide.image.name}</div>
+                                <div className="mt-0.5 text-[9px] tracking-wide text-[#4a5a6e] uppercase">Background image</div>
+                              </div>
+                              <CompactAction label="Remove" onClick={() => handleRemoveSlideMedia("image")} />
+                            </div>
+                          ) : (
+                            <CompactAction label="Add Image" onClick={() => imageInputRef.current?.click()} />
+                          )}
+
+                          {selectedEntry.slide.audio ? (
+                            <div className="border border-[#1e2835] bg-[#0b1119] p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-[11px] text-[#c0ccd8]">{selectedEntry.slide.audio.name}</div>
+                                  <div className="mt-0.5 text-[9px] tracking-wide text-[#4a5a6e] uppercase">Operator audio cue</div>
+                                </div>
+                                <CompactAction label="Remove" onClick={() => handleRemoveSlideMedia("audio")} />
+                              </div>
+                              <audio className="mt-2 h-8 w-full" controls src={selectedEntry.slide.audio.dataUrl} />
+                            </div>
+                          ) : (
+                            <CompactAction label="Add Audio" onClick={() => audioInputRef.current?.click()} />
+                          )}
+
+                          {selectedEntry.slide.emoji ? (
+                            <div className="flex items-center justify-between border border-[#1e2835] bg-[#0b1119] px-2.5 py-2">
+                              <span className="text-2xl">{selectedEntry.slide.emoji}</span>
+                              <CompactAction label="Remove Emoji" onClick={() => handleRemoveSlideMedia("emoji")} />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -1443,6 +1774,8 @@ export function OperatorPage() {
                   ["Go Live", "Space / Enter"],
                   ["Blackout", "B"],
                   ["Logo", "L"],
+                  ["Undo", "Ctrl/Cmd+Z"],
+                  ["Redo", "Ctrl/Cmd+Shift+Z"],
                   ["Export", "Ctrl/Cmd+S"],
                   ["Open", "Ctrl/Cmd+O"],
                 ] as [string, string][]
@@ -1562,10 +1895,6 @@ export function OperatorPage() {
           writeHideStartPanelPreference(hidden);
         }}
         onOpenProjectFile={handleOpenProjectFile}
-        onLoadDemo={() => {
-          const demo = createDemoProject();
-          loadProject(demo, `${demo.name} demo loaded.`);
-        }}
         onCreateBlank={() => {
           const blank = createBlankProject();
           loadProject(blank, `${blank.name} created.`);
@@ -1573,14 +1902,6 @@ export function OperatorPage() {
         onCreateSundayService={() => {
           const serviceProject = createSundayServiceTemplate();
           loadProject(serviceProject, `${serviceProject.name} template created.`);
-        }}
-        onCreateEventDeck={() => {
-          const eventProject = createEventDeckTemplate();
-          loadProject(eventProject, `${eventProject.name} template created.`);
-        }}
-        onCreateSongSet={() => {
-          const songSetProject = createSongSetTemplate();
-          loadProject(songSetProject, `${songSetProject.name} template created.`);
         }}
         onOpenRecentProject={(recentProject) => loadProject(recentProject.project, `${recentProject.name} reopened.`)}
         onLearnAction={(topic) => setNotice(topic)}
