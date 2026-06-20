@@ -10,6 +10,8 @@ The project let me design both the editing experience and the live-output system
 
 For this project, I made an attempt to utilize Codex and Claude to improve the front-end from my original design. Slowly trying to improve my trust of these models, as I know tasks will sometimes be handed off. 
 
+This forced me to learn to utilize a DESIGN.md document, to keep the visual style consistent with what I had designed. 
+
 ## Tech stack
 
 - TypeScript
