@@ -2,7 +2,7 @@
 
 ## Overview
 
-PandaSlides exports projects as `.pandaslides` files. These files are plain JSON using the current schema version defined in the app.
+PandaSlides exports projects as `.pandaslides` files. These files are plain JSON using the current schema version defined in the app, and are intended for future cross-platform use for the eventual SwiftUI version. 
 
 Current schema version:
 
