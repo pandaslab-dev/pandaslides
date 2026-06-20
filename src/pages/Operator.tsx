@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -24,8 +25,12 @@ import {
   appendSlide,
   appendSongSection,
   appendSongServiceItem,
+  deleteServiceItem,
   deleteSlide,
+  duplicateServiceItem,
   moveSlide,
+  moveServiceItem,
+  replaceSongSlidesFromText,
   updateServiceItem,
   updateSlide,
   duplicateSlide,
@@ -35,6 +40,7 @@ import {
   buildLiveStateSnapshot,
   createEmptyWorkspaceState,
   createWorkspaceStateFromProject,
+  getFirstSlideRef,
   getNextSlideRef,
   getPreviousSlideRef,
   getSocket,
@@ -49,7 +55,8 @@ import {
   type SlideRef,
   type WorkspaceState,
 } from "../state/liveState";
-import type { PandaSlidesProject, ServiceItemType } from "../types/project";
+import { formatMidiBinding, useMidiControls, type MidiAction } from "../utils/midiControl";
+import type { PandaSlidesProject, ProjectKind, ServiceItem, ServiceItemType, SlideAlignment, SlideFontSize } from "../types/project";
 import {
   formatUpdatedAt,
   getProjectDownloadName,
@@ -78,6 +85,51 @@ const ITEM_TYPE_OPTIONS: { value: ServiceItemType; label: string }[] = [
 ];
 
 const SONG_SECTION_OPTIONS = ["Verse 1", "Verse 2", "Chorus", "Bridge", "Tag", "Ending"];
+const PROJECT_KIND_OPTIONS: { value: ProjectKind; label: string }[] = [
+  { value: "blank", label: "Blank" },
+  { value: "service", label: "Service" },
+  { value: "event", label: "Event" },
+  { value: "song-set", label: "Song Set" },
+  { value: "demo", label: "Demo" },
+  { value: "custom", label: "Custom" },
+];
+const SLIDE_ALIGNMENT_OPTIONS: { value: SlideAlignment; label: string }[] = [
+  { value: "left", label: "Left" },
+  { value: "center", label: "Center" },
+  { value: "right", label: "Right" },
+];
+const SLIDE_FONT_SIZE_OPTIONS: { value: SlideFontSize; label: string }[] = [
+  { value: "sm", label: "Small" },
+  { value: "md", label: "Medium" },
+  { value: "lg", label: "Large" },
+  { value: "xl", label: "Extra Large" },
+];
+const MIDI_ACTION_LABELS: Record<MidiAction, string> = {
+  previous: "Previous",
+  next: "Next",
+  goLive: "Go Live",
+  blackout: "Blackout",
+  logo: "Logo",
+};
+
+function buildSlideRef(serviceItemId: string, slideId: string): SlideRef {
+  return { serviceItemId, slideId };
+}
+
+function getServiceItemFirstSlideRef(serviceItem: ServiceItem | null) {
+  const firstSlide = serviceItem?.slides[0];
+  if (!serviceItem || !firstSlide) {
+    return null;
+  }
+
+  return buildSlideRef(serviceItem.id, firstSlide.id);
+}
+
+function formatSongDraft(serviceItem: ServiceItem) {
+  return serviceItem.slides
+    .map((slide) => `[${slide.title}]\n${slide.body}`.trim())
+    .join("\n\n");
+}
 
 function getTypeCode(type: ServiceItemType, title: string): string {
   switch (type) {
@@ -285,6 +337,7 @@ export function OperatorPage() {
   const [newSongTitle, setNewSongTitle] = useState("New Song");
   const [newSongTemplate, setNewSongTemplate] = useState<SongTemplateKey>("basic-song");
   const [newSongSection, setNewSongSection] = useState("Verse 1");
+  const [songDraftText, setSongDraftText] = useState("");
 
   const snapshot = useMemo(() => buildLiveStateSnapshot(workspace), [workspace]);
   const project = snapshot.project;
@@ -297,6 +350,27 @@ export function OperatorPage() {
 
   const selectedItem = selectedEntry?.item ?? currentItem ?? null;
   const selectedSlideRef = selectedEntry?.ref ?? null;
+  const midiControls = useMidiControls({
+    onAction(action) {
+      switch (action) {
+        case "previous":
+          handleMove("previous");
+          break;
+        case "next":
+          handleMove("next");
+          break;
+        case "goLive":
+          handleGoLive();
+          break;
+        case "blackout":
+          handleToggleMode("blackout");
+          break;
+        case "logo":
+          handleToggleMode("logo");
+          break;
+      }
+    },
+  });
 
   useEffect(() => {
     if (!notice) {
@@ -365,37 +439,76 @@ export function OperatorPage() {
   }, [workspace]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)) {
-        return;
-      }
-
-      if (!project || !hasSlides || startPanelOpen) {
-        return;
-      }
-
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        handleMove("next");
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        handleMove("previous");
-      } else if (event.key === " ") {
-        event.preventDefault();
-        handleGoLive();
-      } else if (event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        handleToggleMode("blackout");
-      } else if (event.key.toLowerCase() === "l") {
-        event.preventDefault();
-        handleToggleMode("logo");
-      }
+    if (!selectedItem || selectedItem.type !== "song") {
+      return;
     }
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hasSlides, project, startPanelOpen, workspace]);
+    setSongDraftText(formatSongDraft(selectedItem));
+  }, [selectedItem?.id, selectedItem?.type]);
+
+  const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    const modifierPressed = event.metaKey || event.ctrlKey;
+    if (modifierPressed && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      if (!project) {
+        setNotice("Load a project first.");
+        return;
+      }
+
+      downloadProject(project);
+      setNotice(`${project.name} exported.`);
+      return;
+    }
+
+    if (modifierPressed && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      handleOpenProjectFile();
+      return;
+    }
+
+    if (modifierPressed && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      setStartPanelOpen(true);
+      return;
+    }
+
+    if (target && ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)) {
+      return;
+    }
+
+    if (!project || !hasSlides || startPanelOpen) {
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      handleMove("next");
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      handleMove("previous");
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      handleQueueMove("next");
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      handleQueueMove("previous");
+    } else if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      handleGoLive();
+    } else if (event.key.toLowerCase() === "b") {
+      event.preventDefault();
+      handleToggleMode("blackout");
+    } else if (event.key.toLowerCase() === "l") {
+      event.preventDefault();
+      handleToggleMode("logo");
+    }
+  });
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleGlobalKeyDown]);
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
@@ -522,6 +635,24 @@ export function OperatorPage() {
     pushLiveState(nextState, "live:select", slideRef);
   }
 
+  function handleQueueMove(direction: "next" | "previous") {
+    if (!workspace.project) {
+      return;
+    }
+
+    const baseRef = workspace.selected ?? workspace.live ?? getFirstSlideRef(workspace.project);
+    const nextRef =
+      direction === "next"
+        ? getNextSlideRef(workspace.project, baseRef)
+        : getPreviousSlideRef(workspace.project, baseRef);
+
+    if (!nextRef) {
+      return;
+    }
+
+    handleSelectSlide(nextRef);
+  }
+
   function handleGoLive(slideRef?: SlideRef) {
     const nextState = goLive(workspace, slideRef);
     pushLiveState(nextState, "live:goToSlide", slideRef ?? nextState.live);
@@ -536,6 +667,10 @@ export function OperatorPage() {
     const nextMode = workspace.mode === mode ? "live" : mode;
     const nextState = setOutputMode(workspace, nextMode);
     pushLiveState(nextState, "live:setMode", { mode: nextMode });
+  }
+
+  function openOutputWindow(route: "/display" | "/stage") {
+    window.open(route, "_blank", "noopener,noreferrer");
   }
 
   function handleAddServiceItem() {
@@ -593,6 +728,74 @@ export function OperatorPage() {
     pushProject(nextProject, "project:update", `${newSongSection} added.`, {
       selected: nextRef,
       live: workspace.live,
+    });
+  }
+
+  function handleDuplicateServiceItem() {
+    if (!workspace.project || !selectedItem) {
+      return;
+    }
+
+    const nextProject = duplicateServiceItem(workspace.project, selectedItem.id);
+    const sourceIndex = workspace.project.serviceItems.findIndex((serviceItem) => serviceItem.id === selectedItem.id);
+    const nextItem = nextProject.serviceItems[sourceIndex + 1] ?? null;
+    pushProject(nextProject, "project:update", `${nextItem?.title ?? "Service item"} duplicated.`, {
+      selected: getServiceItemFirstSlideRef(nextItem),
+      live: workspace.live,
+    });
+  }
+
+  function handleDeleteServiceItem() {
+    if (!workspace.project || !selectedItem) {
+      return;
+    }
+
+    const selectedFallback =
+      workspace.selected?.serviceItemId === selectedItem.id
+        ? getNextSlideRef(workspace.project, workspace.selected) ?? getPreviousSlideRef(workspace.project, workspace.selected)
+        : workspace.selected;
+    const liveFallback =
+      workspace.live?.serviceItemId === selectedItem.id
+        ? getNextSlideRef(workspace.project, workspace.live) ?? getPreviousSlideRef(workspace.project, workspace.live)
+        : workspace.live;
+
+    updateCurrentProject(
+      (currentProject) => deleteServiceItem(currentProject, selectedItem.id),
+      `${selectedItem.title} removed.`,
+      {
+        selected: selectedFallback,
+        live: liveFallback,
+      },
+    );
+  }
+
+  function handleMoveServiceItem(direction: "up" | "down") {
+    if (!selectedItem) {
+      return;
+    }
+
+    updateCurrentProject(
+      (currentProject) => moveServiceItem(currentProject, selectedItem.id, direction),
+      direction === "up" ? "Service item moved up." : "Service item moved down.",
+    );
+  }
+
+  function handleReplaceSongSlides() {
+    if (!workspace.project || !selectedItem || selectedItem.type !== "song") {
+      return;
+    }
+
+    if (!songDraftText.trim()) {
+      setNotice("Paste song sections first.");
+      return;
+    }
+
+    const nextProject = replaceSongSlidesFromText(workspace.project, selectedItem.id, songDraftText);
+    const updatedItem = nextProject.serviceItems.find((serviceItem) => serviceItem.id === selectedItem.id) ?? null;
+    const nextRef = getServiceItemFirstSlideRef(updatedItem);
+    pushProject(nextProject, "project:update", `${selectedItem.title} lyrics imported.`, {
+      selected: workspace.selected?.serviceItemId === selectedItem.id ? nextRef : workspace.selected,
+      live: workspace.live?.serviceItemId === selectedItem.id ? nextRef : workspace.live,
     });
   }
 
@@ -732,7 +935,7 @@ export function OperatorPage() {
                   Edit: "Use the inspector panel to update service items and slides.",
                   View: "Open /display or /stage in separate tabs for live output routing.",
                   Output: "Display and stage reconnect automatically to the latest live state.",
-                  Help: "Shortcuts: → next · ← previous · Space go live · B blackout · L logo.",
+                  Help: "Shortcuts: → next live · ← previous live · ↓ queue next · ↑ queue previous · Space or Enter go live · B blackout · L logo · Ctrl/Cmd+S export.",
                 };
                 setNotice(messages[label]);
               }}
@@ -997,6 +1200,45 @@ export function OperatorPage() {
 
             <div className="flex-1 overflow-y-auto">
               <div className="divide-y divide-[#161e2a]">
+                {project ? (
+                  <div className="px-3 py-2.5">
+                    <FieldLabel>Project</FieldLabel>
+                    <div className="mt-2 space-y-2">
+                      <ChromeInput
+                        value={project.name}
+                        onChange={(event) =>
+                          updateCurrentProject((currentProject) => ({
+                            ...currentProject,
+                            name: event.target.value,
+                            updatedAt: new Date().toISOString(),
+                          }))
+                        }
+                        placeholder="Project name"
+                      />
+                      <ChromeSelect
+                        value={project.kind}
+                        onChange={(event) =>
+                          updateCurrentProject((currentProject) => ({
+                            ...currentProject,
+                            kind: event.target.value as ProjectKind,
+                            updatedAt: new Date().toISOString(),
+                          }))
+                        }
+                      >
+                        {PROJECT_KIND_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </ChromeSelect>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <CompactAction label="Open Display" onClick={() => openOutputWindow("/display")} />
+                        <CompactAction label="Open Stage" onClick={() => openOutputWindow("/stage")} />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="px-3 py-2.5">
                   <FieldLabel>New Service Item</FieldLabel>
                   <div className="mt-2 space-y-2">
@@ -1037,8 +1279,33 @@ export function OperatorPage() {
                         }
                         placeholder="Service item title"
                       />
+                      <ChromeInput
+                        value={selectedItem.subtitle ?? ""}
+                        onChange={(event) =>
+                          updateCurrentProject((currentProject) =>
+                            updateServiceItem(currentProject, selectedItem.id, { subtitle: event.target.value }),
+                          )
+                        }
+                        placeholder="Subtitle / notes"
+                      />
                       <div className="text-[10px] text-[#4a5a6e]">
                         {selectedItem.type.toUpperCase()} · {selectedItem.slides.length} slide{selectedItem.slides.length === 1 ? "" : "s"}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <CompactAction
+                          label="Move Up"
+                          onClick={() => handleMoveServiceItem("up")}
+                          disabled={!project || selectedItem.orderIndex === 0}
+                        />
+                        <CompactAction
+                          label="Move Down"
+                          onClick={() => handleMoveServiceItem("down")}
+                          disabled={!project || selectedItem.orderIndex === project.serviceItems.length - 1}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <CompactAction label="Duplicate" onClick={handleDuplicateServiceItem} disabled={!project} />
+                        <CompactAction label="Delete Item" onClick={handleDeleteServiceItem} disabled={!project} />
                       </div>
                       <div className="flex gap-1.5">
                         <CompactAction label="+ Slide" onClick={handleAddSlide} disabled={!project} />
@@ -1054,6 +1321,17 @@ export function OperatorPage() {
                             </option>
                           ))}
                         </ChromeSelect>
+                      ) : null}
+                      {selectedItem.type === "song" ? (
+                        <>
+                          <ChromeTextArea
+                            value={songDraftText}
+                            onChange={(event) => setSongDraftText(event.target.value)}
+                            className="min-h-[160px]"
+                            placeholder={"[Verse 1]\nFirst lyric line\nSecond lyric line\n\n[Chorus]\nSing the chorus"}
+                          />
+                          <CompactAction label="Replace From Text" onClick={handleReplaceSongSlides} disabled={!project} accent />
+                        </>
                       ) : null}
                     </div>
                   </div>
@@ -1097,6 +1375,51 @@ export function OperatorPage() {
                         }
                         placeholder="Slide text"
                       />
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <ChromeSelect
+                          value={selectedEntry.slide.align ?? "center"}
+                          onChange={(event) =>
+                            updateCurrentProject((currentProject) =>
+                              updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+                                align: event.target.value as SlideAlignment,
+                              }),
+                            )
+                          }
+                        >
+                          {SLIDE_ALIGNMENT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              Align: {option.label}
+                            </option>
+                          ))}
+                        </ChromeSelect>
+                        <ChromeSelect
+                          value={selectedEntry.slide.fontSize ?? "lg"}
+                          onChange={(event) =>
+                            updateCurrentProject((currentProject) =>
+                              updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+                                fontSize: event.target.value as SlideFontSize,
+                              }),
+                            )
+                          }
+                        >
+                          {SLIDE_FONT_SIZE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              Size: {option.label}
+                            </option>
+                          ))}
+                        </ChromeSelect>
+                      </div>
+                      <ChromeInput
+                        value={selectedEntry.slide.footer ?? ""}
+                        onChange={(event) =>
+                          updateCurrentProject((currentProject) =>
+                            updateSlide(currentProject, selectedEntry.item.id, selectedEntry.slide.id, {
+                              footer: event.target.value,
+                            }),
+                          )
+                        }
+                        placeholder="Footer / lower-third"
+                      />
                     </div>
                   </div>
                 ) : (
@@ -1115,9 +1438,13 @@ export function OperatorPage() {
                 [
                   ["Next slide", "→"],
                   ["Prev slide", "←"],
-                  ["Go Live", "Space"],
+                  ["Queue next", "↓"],
+                  ["Queue prev", "↑"],
+                  ["Go Live", "Space / Enter"],
                   ["Blackout", "B"],
                   ["Logo", "L"],
+                  ["Export", "Ctrl/Cmd+S"],
+                  ["Open", "Ctrl/Cmd+O"],
                 ] as [string, string][]
               ).map(([action, key]) => (
                 <div key={action} className="flex items-center justify-between px-3 py-[7px]">
@@ -1127,6 +1454,75 @@ export function OperatorPage() {
                   </span>
                 </div>
               ))}
+            </div>
+
+            <div className="border-t border-[#161e2a] px-3 py-3">
+              <FieldLabel>MIDI Control</FieldLabel>
+              <div className="mt-2 space-y-2">
+                <div className="text-[10px] text-[#4a5a6e]">
+                  {midiControls.status === "unsupported"
+                    ? "Web MIDI is not available in this browser."
+                    : midiControls.status === "ready"
+                      ? "Device input is active."
+                      : midiControls.status === "requesting"
+                        ? "Waiting for MIDI permission…"
+                        : midiControls.status === "error"
+                          ? "MIDI permission was denied."
+                          : "Connect a foot pedal or controller for hands-free operation."}
+                </div>
+                {midiControls.status !== "unsupported" ? (
+                  <>
+                    <CompactAction
+                      label={midiControls.status === "ready" ? "Reconnect MIDI" : "Enable MIDI"}
+                      onClick={() => {
+                        void midiControls.requestAccess();
+                      }}
+                      accent
+                    />
+                    <ChromeSelect
+                      value={midiControls.selectedInputId ?? ""}
+                      onChange={(event) => midiControls.selectInput(event.target.value)}
+                      disabled={midiControls.inputs.length === 0}
+                    >
+                      {midiControls.inputs.length === 0 ? (
+                        <option value="">No MIDI devices detected</option>
+                      ) : (
+                        midiControls.inputs.map((input) => (
+                          <option key={input.id} value={input.id}>
+                            {input.name}
+                          </option>
+                        ))
+                      )}
+                    </ChromeSelect>
+                    <div className="space-y-1">
+                      {(Object.keys(MIDI_ACTION_LABELS) as MidiAction[]).map((action) => (
+                        <div key={action} className="border border-[#1e2835] bg-[#0b1119] px-2.5 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-[#c0ccd8]">{MIDI_ACTION_LABELS[action]}</span>
+                            <div className="flex gap-1.5">
+                              <CompactAction
+                                label={midiControls.isLearning === action ? "Listening…" : "Learn"}
+                                onClick={() => midiControls.setLearningAction(action)}
+                                disabled={midiControls.status !== "ready" || !midiControls.selectedInputId}
+                                accent={midiControls.isLearning === action}
+                              />
+                              <CompactAction
+                                label="Clear"
+                                onClick={() => midiControls.clearBinding(action)}
+                                disabled={!midiControls.bindings[action]}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-1 text-[10px] text-[#4a5a6e]">{formatMidiBinding(midiControls.bindings[action])}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {midiControls.lastMessage ? (
+                      <div className="text-[10px] text-[#2e3d50]">Last MIDI: {midiControls.lastMessage}</div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             </div>
 
             {project ? (

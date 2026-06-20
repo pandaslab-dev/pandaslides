@@ -298,7 +298,7 @@ export function StartPanel({
                   label="Keyboard Shortcuts"
                   description="Hotkeys for live operation."
                   onClick={() =>
-                    onLearnAction("Shortcuts: → next · ← previous · Space go live · B blackout · L logo.")
+                    onLearnAction("Shortcuts: → next live · ← previous live · ↓ queue next · ↑ queue previous · Space or Enter go live · B blackout · L logo.")
                   }
                 />
 
@@ -311,7 +311,9 @@ export function StartPanel({
                     [
                       ["Next", "→"],
                       ["Prev", "←"],
-                      ["Go Live", "Space"],
+                      ["Queue Next", "↓"],
+                      ["Queue Prev", "↑"],
+                      ["Go Live", "Space / Enter"],
                       ["Blackout", "B"],
                       ["Logo", "L"],
                     ] as [string, string][]

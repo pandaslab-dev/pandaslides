@@ -3,6 +3,7 @@ import {
   createServiceItemTemplate,
   createSongSectionSlide,
   createSongServiceItem,
+  duplicateServiceItemTemplate,
   type SongTemplateKey,
 } from "../data/projectTemplates";
 import { cloneProject } from "./projectStorage";
@@ -44,6 +45,72 @@ function updateServiceItemById(
     project,
     project.serviceItems.map((serviceItem) => (serviceItem.id === serviceItemId ? updater(serviceItem) : serviceItem)),
   );
+}
+
+function moveArrayItem<T>(values: T[], fromIndex: number, toIndex: number) {
+  const nextValues = [...values];
+  const [movedValue] = nextValues.splice(fromIndex, 1);
+  nextValues.splice(toIndex, 0, movedValue);
+  return nextValues;
+}
+
+function inferSongSectionTitle(title: string, sectionIndex: number) {
+  const trimmedTitle = title.trim();
+  if (trimmedTitle.length > 0) {
+    return trimmedTitle;
+  }
+
+  return `Section ${sectionIndex + 1}`;
+}
+
+function createSongImportSlide(title: string, body: string, orderIndex: number): Slide {
+  const normalizedTitle = inferSongSectionTitle(title, orderIndex);
+  const normalizedBody = body.trim();
+  const baseSlide = createBlankSlide(normalizedTitle, normalizedBody, orderIndex);
+  const lowerTitle = normalizedTitle.toLowerCase();
+
+  return {
+    ...baseSlide,
+    footer: "SONG",
+    fontSize: lowerTitle.includes("chorus") || lowerTitle.includes("tag") ? "xl" : "lg",
+  };
+}
+
+type ParsedSongSection = {
+  title: string;
+  body: string;
+};
+
+function parseSongSections(rawText: string): ParsedSongSection[] {
+  const normalized = rawText.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const blocks = normalized
+    .split(/\n\s*\n/g)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  return blocks.map((block, blockIndex) => {
+    const lines = block
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length > 0);
+    const headingMatch = lines[0]?.match(/^\[?([A-Za-z][A-Za-z0-9'&/ -]*)\]?:?$/);
+
+    if (headingMatch && lines.length > 1) {
+      return {
+        title: inferSongSectionTitle(headingMatch[1], blockIndex),
+        body: lines.slice(1).join("\n"),
+      };
+    }
+
+    return {
+      title: inferSongSectionTitle("", blockIndex),
+      body: lines.join("\n"),
+    };
+  });
 }
 
 export function findServiceItem(project: PandaSlidesProject, serviceItemId: string) {
@@ -91,6 +158,20 @@ export function appendSongSection(project: PandaSlidesProject, serviceItemId: st
   }));
 }
 
+export function replaceSongSlidesFromText(project: PandaSlidesProject, serviceItemId: string, rawText: string) {
+  const sections = parseSongSections(rawText);
+  if (sections.length === 0) {
+    return project;
+  }
+
+  return updateServiceItemById(project, serviceItemId, (serviceItem) => ({
+    ...serviceItem,
+    slides: reindexSlides(
+      sections.map((section, orderIndex) => createSongImportSlide(section.title, section.body, orderIndex)),
+    ),
+  }));
+}
+
 export function duplicateSlide(project: PandaSlidesProject, serviceItemId: string, slideId: string) {
   return updateServiceItemById(project, serviceItemId, (serviceItem) => {
     const slideIndex = serviceItem.slides.findIndex((slide) => slide.id === slideId);
@@ -122,6 +203,43 @@ export function deleteSlide(project: PandaSlidesProject, serviceItemId: string, 
     ...serviceItem,
     slides: reindexSlides(serviceItem.slides.filter((slide) => slide.id !== slideId)),
   }));
+}
+
+export function duplicateServiceItem(project: PandaSlidesProject, serviceItemId: string) {
+  const serviceItemIndex = project.serviceItems.findIndex((serviceItem) => serviceItem.id === serviceItemId);
+  if (serviceItemIndex === -1) {
+    return project;
+  }
+
+  const duplicatedItem = duplicateServiceItemTemplate(project.serviceItems[serviceItemIndex]);
+  const nextServiceItems = [...project.serviceItems];
+  nextServiceItems.splice(serviceItemIndex + 1, 0, {
+    ...duplicatedItem,
+    title: `${project.serviceItems[serviceItemIndex].title} Copy`,
+  });
+
+  return touchProject(project, nextServiceItems);
+}
+
+export function deleteServiceItem(project: PandaSlidesProject, serviceItemId: string) {
+  return touchProject(
+    project,
+    project.serviceItems.filter((serviceItem) => serviceItem.id !== serviceItemId),
+  );
+}
+
+export function moveServiceItem(project: PandaSlidesProject, serviceItemId: string, direction: "up" | "down") {
+  const serviceItemIndex = project.serviceItems.findIndex((serviceItem) => serviceItem.id === serviceItemId);
+  if (serviceItemIndex === -1) {
+    return project;
+  }
+
+  const targetIndex = direction === "up" ? serviceItemIndex - 1 : serviceItemIndex + 1;
+  if (targetIndex < 0 || targetIndex >= project.serviceItems.length) {
+    return project;
+  }
+
+  return touchProject(project, moveArrayItem(project.serviceItems, serviceItemIndex, targetIndex));
 }
 
 export function moveSlide(project: PandaSlidesProject, serviceItemId: string, slideId: string, direction: "up" | "down") {

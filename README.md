@@ -1,4 +1,4 @@
-# PandaSlides MVP
+# PandaSlides
 
 PandaSlides is a lightweight browser-based live presentation control demo with three synchronized views:
 
@@ -6,7 +6,7 @@ PandaSlides is a lightweight browser-based live presentation control demo with t
 - `/display` for the audience output
 - `/stage` for the confidence monitor
 
-The first version uses hardcoded demo data and Socket.IO to prove the realtime workflow.
+The app uses Socket.IO to keep all three views in sync in realtime while the operator edits a project locally.
 
 ## Stack
 
@@ -56,20 +56,38 @@ npm start
 - `http://localhost:3001/display`
 - `http://localhost:3001/stage`
 
+## Current Features
+
+- Create new blank, service, event, and song-set projects
+- Add service items and song items
+- Add, duplicate, move, delete, and format slides
+- Paste song sections from text and rebuild song slides automatically
+- Run synchronized operator, display, and stage views
+- Use keyboard shortcuts for queueing, going live, blackout, logo, open, and export
+- Export projects as `.pandaslides`
+- Optional Web MIDI control input for previous, next, go-live, blackout, and logo
+
 ## Demo Workflow
 
 1. Open `/operator` on your control machine.
 2. Open `/display` on the audience screen.
 3. Open `/stage` on a confidence monitor.
-4. Click any slide in the playlist and use `Go Live` to push it to the other views.
-5. Use `Next`, `Previous`, `Blackout`, and `Logo` to control the live output in realtime.
+4. Create or open a project from the start panel.
+5. Click any slide in the rundown to queue it and use `Go Live` to push it to the other views.
+6. Use the transport controls, shortcuts, or MIDI bindings to control the live output in realtime.
 
 ## Keyboard Shortcuts
 
-- `Right Arrow`: next slide
-- `Left Arrow`: previous slide
+- `Right Arrow`: next slide live
+- `Left Arrow`: previous slide live
+- `Down Arrow`: queue next slide
+- `Up Arrow`: queue previous slide
+- `Space` or `Enter`: send the queued slide live
 - `B`: toggle blackout
 - `L`: toggle logo
+- `Ctrl/Cmd + S`: export `.pandaslides`
+- `Ctrl/Cmd + O`: open project file
+- `Ctrl/Cmd + N`: open the start panel
 
 ## Render Deployment
 
@@ -82,5 +100,5 @@ npm start
 
 - The server runs on `http://localhost:3001`.
 - The frontend runs on `http://localhost:5173`.
-- Live state is stored in memory only.
-- No authentication, persistence, slide editing, or external APIs are included in this MVP.
+- Live state is stored in memory on the server and mirrored to local storage on the operator.
+- Web MIDI depends on browser support and user permission.
